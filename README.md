@@ -4,7 +4,7 @@
 
 2. Run *data_clustering.py* file first to generate the group sequence data. Make sure set the parameters for how many groups are needed.
 
-3. To perform individual group prediction, run the *baseline_prediction.py* file by setting the group number.
+3. To perform individual group prediction, run the *baseline_prediction.py* file by setting the group id number.
 
-4. To perform federated learning, run the *federated_prediction* file.
+4. To perform federated learning, run the *federated_prediction.py* file.
 
