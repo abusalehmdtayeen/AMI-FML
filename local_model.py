@@ -92,14 +92,14 @@ class LocalModel(object):
 	#----------------------------------------
 	def inference(self, model):
 		""" 
-		Returns the inference loss.
+		Returns the inference loss on test data.
 		"""
 
 		test_data = torch.FloatTensor(self.test).view(-1)	
 		test_seq = create_inout_sequences(test_data, self.window)
 
 		model.eval()
-		loss = 0.0
+		losses = []
 		total_seq = 0
 		test_predictions = []
 		actual_predictions = []
@@ -110,8 +110,8 @@ class LocalModel(object):
 				# Inference
 				outputs = model(seq)
 				batch_loss = self.criterion(outputs, labels)
-				loss += batch_loss.item()
-				# Prediction
+				losses.append(batch_loss.item())
+				
 				test_predictions.append(model(seq).item())
 				actual_predictions.append(labels.item())
 			total_seq += 1		
@@ -123,9 +123,9 @@ class LocalModel(object):
 			test_predictions = test_predictions[:,0]
 			actual_predictions = actual_predictions[:,0]      
 
-		mse = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
+		rmse = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
 		
-		return mse, loss
+		return rmse, losses
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 '''

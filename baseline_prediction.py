@@ -11,6 +11,7 @@ from torch import nn
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 
@@ -22,7 +23,7 @@ import utils
 base_path = os.getcwd()
 data_path = base_path + "/data/group_load/"
 #============PARAMETERS===============
-group_id = 1 #group id of the meter cluster
+group_id = 3 #group id of the meter cluster
 split_ratio = .80 #split ratio for train data
 window_size = 48
 epochs = 3
@@ -42,6 +43,7 @@ else:
 #----------------------------------------
 # load the dataset
 def get_train_test_data(normalize=True):
+	print("Getting data of group with ID: %s"%str(group_id))
 	dataframe = pd.read_csv(data_path+"g"+str(group_id)+"_sum"+".csv")
 	#print(dataframe.shape)
 	#print(dataframe.head())
@@ -112,15 +114,21 @@ def evaluate_model(model, test_data, normalized=True, scaler=None):
 	#print (test_seq)
 	#print(len(test_seq))
 
+	criterion = nn.MSELoss().to(device)
+
 	test_predictions = []
 	actual_predictions = []
+	losses = []
 	model.eval()
 	print("Evaluating the model...")
 	for seq, labels in test_seq:
 		seq, labels = seq.to(device), labels.to(device)
 		with torch.no_grad():
 			model.hidden = (torch.zeros(1, 1, model.hidden_layer_size, device=device), torch.zeros(1, 1, model.hidden_layer_size, device=device))
-			test_predictions.append(model(seq).item())
+			outputs = model(seq)
+			loss = criterion(outputs, labels)
+			losses.append(loss.item())
+			test_predictions.append(outputs.item())
 			actual_predictions.append(labels.item())
 
 	#print(test_predictions)
@@ -133,8 +141,18 @@ def evaluate_model(model, test_data, normalized=True, scaler=None):
 		test_predictions = test_predictions[:,0]
 		actual_predictions = actual_predictions[:,0]
 
-	#print(test_predictions)	
-	#print(actual_predictions)
+	#print(actual_predictions[:5])
+	#print("-----------------")
+	#print(test_predictions[:5])	
+	#print("-----------------")
+	helper.make_dir(base_path, "figures")
+	utils.plot_predictions(base_path + "/figures/", group_id, actual_predictions, test_predictions)
+
+	errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
+	#print(errors[: 5])
+	#print(losses[: 5])
+	utils.plot_errors(base_path + "/figures/", group_id, errors)
+	utils.plot_losses(base_path + "/figures/", group_id, losses, lid="single")
 
 	testScore = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
 	print('Test Score: %.2f RMSE' % (testScore))

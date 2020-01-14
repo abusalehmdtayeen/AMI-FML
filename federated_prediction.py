@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 matplotlib.use('Agg')
 
 import helper
+import utils
 import torch
 
 from local_model import LocalModel
@@ -78,16 +79,32 @@ if __name__ == '__main__':
     # Training
 	train_loss = []
     
-	for epoch in tqdm(range(global_epochs)):
+	#~~~~~~~~~~~~~~~~~CHOOSE ALL GROUPS~~~~~~~~~~~~~~~
+	local_models = []
+	group_indices = np.arange(num_groups)
+	for indx in group_indices:
+		local_model = LocalModel(group_ids[indx], split_ratio, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+		local_models.append(local_model)
+	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	for epoch in range(global_epochs):
 		local_weights, local_losses = [], []
 	
 		global_model.train()
-		m = max(int(frac * num_groups), 1)
-		group_indices = np.random.choice(range(num_groups), m, replace=False)
+		#~~~~~~~~~~~~~~~~~CHOOSE FRACTION OF ALL GROUPS RANDOMLY~~~~~~~~~~~ 
+		#m = max(int(frac * num_groups), 1)
+		#group_indices = np.random.choice(range(num_groups), m, replace=False)
+		#local_models = []
+		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 		for indx in group_indices:
 			print("Training group with ID: %s"%str(group_ids[indx]))
-			local_model = LocalModel(group_ids[indx], split_ratio, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+			#~~~~~~~~~~~~~~~when FRACTION OF ALL GROUPS are choosen randomly~~~~~~~~~~~~
+			#local_model = LocalModel(group_ids[indx], split_ratio, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+			#local_models.append(local_model)
+			#~~~~~~~~~~~~~~~~~when ALL GROUPS are chosen~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			local_model = local_models[indx]
+			#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 			w, loss = local_model.update_weights(model=copy.deepcopy(global_model), global_round=epoch)
 			local_weights.append(copy.deepcopy(w))
 			local_losses.append(copy.deepcopy(loss))
@@ -103,35 +120,30 @@ if __name__ == '__main__':
 
 		print('Global Training Round : {}, Average loss {:.3f}'.format(epoch, loss_avg))
 
-	end_time = time.time()
-	print("Total execution time: %f"%(end_time-start_time))
+	print('\n Total Training Time: {0:0.4f}'.format(time.time()-start_time))
 	#------------------------------------------------------------------------
-	'''
+	#~~~~~~~~~~~~~~~when ALL GROUPS are chosen~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # Test inference after completion of training
-    test_acc, test_loss = test_inference(args, global_model, test_dataset)
+	print(f' \n Results after {global_epochs} global rounds of training:')	
+	group_losses = []
+    global_model.eval()
+	
+	for indx in group_indices:
+		local_model = local_models[indx]
+		rmse, losses = local_model.inference(model=global_model)
+		group_losses.append(losses)
 
-    print(f' \n Results after {args.epochs} global rounds of training:')
-    print("|---- Avg Train Accuracy: {:.2f}%".format(100*train_accuracy[-1]))
-    print("|---- Test Accuracy: {:.2f}%".format(100*test_acc))
-
-    # Saving the objects train_loss and train_accuracy:
-    file_name = '../save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'.\
-        format(args.dataset, args.model, args.epochs, args.frac, args.iid,
-               args.local_ep, args.local_bs)
-
-    with open(file_name, 'wb') as f:
-        pickle.dump([train_loss, train_accuracy], f)
-
+		print("Test score of group %s: %.2f RMSE"%(str(group_ids[indx]), rmse))
+   
+ 
     print('\n Total Run Time: {0:0.4f}'.format(time.time()-start_time))
-	'''
-    
+	
     #--------------------------------------------------------- 
-	print("Plotting loss curve")
-	plt.figure()
-	plt.title('Training Loss vs Communication rounds')
-	plt.plot(range(len(train_loss)), train_loss, color='r')
-	plt.ylabel('Training loss')
-	plt.xlabel('Communication Rounds')
-	plt.savefig('loss_curve.pdf', bbox_inches = "tight")
-	plt.close()
-    
+	helper.make_dir(base_path, "figures")	
+	print("Plotting federated test loss curves")
+	for indx in group_indices:
+		gid = group_ids[indx]
+		g_losses = group_losses[indx]
+		utils.plot_losses(base_path + "/figures/", gid, g_losses, lid="federated")
+	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+

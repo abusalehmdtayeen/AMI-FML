@@ -11,6 +11,45 @@ def plot_dataset(dataframe):
 	plt.show()
 
 #--------------------------------------
+def plot_predictions(fig_path, gid, test_values, test_predictions):
+	plt.title('Timestep vs Power Consumption')
+	plt.ylabel('Power Consumption')
+	plt.grid(True)
+	plt.autoscale(axis='x', tight=True)
+	plt.plot(test_values)
+	plt.plot(test_predictions)
+	test_actual, = plt.plot(test_values, label='Actual test values')
+	test_pred,  = plt.plot(test_predictions, label='Predicted test values')
+	plt.legend(handles=[test_actual, test_pred])
+
+	#plt.show()
+	plt.savefig(fig_path+"/g"+str(gid)+"_actual_vs_pred.pdf", bbox_inches = "tight")
+	plt.close()
+
+#----------------------------------------
+def plot_errors(fig_path, gid, errors):
+	plt.title('Timestep vs Squared Errors')
+	plt.ylabel('Squared Errors')
+	plt.grid(True)
+	plt.autoscale(axis='x', tight=True)
+	plt.plot(errors)
+	
+	#plt.show()
+	plt.savefig(fig_path+"/g"+str(gid)+"_test_errors.pdf", bbox_inches = "tight")
+	plt.close()
+
+#------------------------------------------
+def plot_losses(fig_path, gid, losses, lid="single"):
+	plt.figure()
+	plt.title('Testing Loss vs Timesteps')
+	plt.grid(True)
+	plt.plot(range(len(losses)), losses, color='r')
+	plt.ylabel('MSE')
+	plt.xlabel('Timesteps')
+	plt.savefig(fig_path +"/g"+ str(gid)+"_test_loss_"+ lid + ".pdf", bbox_inches = "tight")
+	plt.close()
+
+#--------------------------------------
 def create_inout_sequences(input_data, tw):
 	"""
 	Create sequences and corresponding labels for training

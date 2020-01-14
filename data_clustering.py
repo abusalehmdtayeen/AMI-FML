@@ -198,15 +198,20 @@ def create_group_meter_data(meter_groups, time_scale=1.0):
 #-----------------------------------
 if __name__ == "__main__":
 	
+	#~~~~~~~~~~~PARAMETERS~~~~~~~~~~~~~~~~
 	suffix = "_half_hr"
+	num_groups = 4
+	size_group = 3
+	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	#get all meter ids from file names
 	meter_files =  helper.find_filenames_ext(data_path+"/meter_load"+suffix+"/", ".csv")
 	meters = [ meter_file[ : meter_file.rindex(".")] for meter_file in meter_files ]
 	print("Total number of meter ids = %d"%len(meters))
 	
 	#make two groups with each with size 3
-	meter_groups = make_meter_groups(meter_ids=meters, group_size=3, group_limit=2)
+	meter_groups = make_meter_groups(meter_ids=meters, group_size=size_group, group_limit=num_groups)
 	#generate half hr data for each group
 	create_group_meter_data(meter_groups, 0.5)
+	print("%d groups each with size %d are created"%(num_groups, size_group))
 
 	
