@@ -23,10 +23,10 @@ import utils
 base_path = os.getcwd()
 data_path = base_path + "/data/group_load/"
 #============PARAMETERS===============
-group_id = 3 #group id of the meter cluster
-split_ratio = .80 #split ratio for train data
-window_size = 48
-epochs = 3
+split_ratio = 0.80 #split ratio for train data
+normalize = True #normalize data
+window_size = 24
+epochs = 2
 #====================================
 
 # torch.cuda.is_available() checks and returns a Boolean True if a GPU is available, else it'll return False
@@ -42,9 +42,9 @@ else:
 
 #----------------------------------------
 # load the dataset
-def get_train_test_data(normalize=True):
+def get_train_test_data(group_id):
 	print("Getting data of group with ID: %s"%str(group_id))
-	dataframe = pd.read_csv(data_path+"g"+str(group_id)+"_sum"+".csv")
+	dataframe = pd.read_csv(data_path+str(group_id)+"_sum"+".csv")
 	#print(dataframe.shape)
 	#print(dataframe.head())
 	#plot_dataset(dataframe)
@@ -104,11 +104,11 @@ def train_model(model, train_data):
 
 		print(f'epoch:{i:3} loss: {single_loss.item():10.8f}')
 
-	#print(f'epoch: {i:3} loss: {single_loss.item():10.10f}')
-
+	return model
+	
 #-----------------------------------
 #evaluate the model with test data
-def evaluate_model(model, test_data, normalized=True, scaler=None):
+def evaluate_model(model, group_id, test_data, scaler=None):
 	test_data = torch.FloatTensor(test_data).view(-1)	
 	test_seq = utils.create_inout_sequences(test_data, window_size)
 	#print (test_seq)
@@ -124,7 +124,7 @@ def evaluate_model(model, test_data, normalized=True, scaler=None):
 	for seq, labels in test_seq:
 		seq, labels = seq.to(device), labels.to(device)
 		with torch.no_grad():
-			model.hidden = (torch.zeros(1, 1, model.hidden_layer_size, device=device), torch.zeros(1, 1, model.hidden_layer_size, device=device))
+			model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=device), torch.zeros(1, 1, model.hidden_layer_size, device=device))
 			outputs = model(seq)
 			loss = criterion(outputs, labels)
 			losses.append(loss.item())
@@ -133,7 +133,7 @@ def evaluate_model(model, test_data, normalized=True, scaler=None):
 
 	#print(test_predictions)
 	#print(actual_predictions)
-	if normalized and scaler is not None:
+	if normalize and scaler is not None:
 		#Since we normalized the dataset, the predicted values are also normalized. We need to convert the normalized predicted values into actual predicted values.
 		actual_predictions = scaler.inverse_transform(np.array(actual_predictions).reshape(-1, 1))
 		test_predictions = scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1))
@@ -151,23 +151,37 @@ def evaluate_model(model, test_data, normalized=True, scaler=None):
 	errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
 	#print(errors[: 5])
 	#print(losses[: 5])
-	utils.plot_errors(base_path + "/figures/", group_id, errors)
+	utils.plot_errors(base_path + "/figures/", group_id, errors, eid="single")
 	utils.plot_losses(base_path + "/figures/", group_id, losses, lid="single")
 
 	testScore = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
-	print('Test Score: %.2f RMSE' % (testScore))
+	print('Test score of group with ID %s : %.2f RMSE' %(str(group_id), testScore))
+
+	return testScore
 
 #-------------------------------
 if __name__ == '__main__':
-	normalize = True
-	train_data, test_data, scaler = get_train_test_data(normalize)
 	
-	model = LSTM()
-	model.to(device)
-	loss_function = nn.MSELoss().to(device)
-	optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-	#print(model)
+	groups = helper.find_filenames_ext(data_path)
+	#~~~~~~~~SET group ids manually~~~~~~~~~~~~~~~
+	#group_ids = ['g1', 'g2', 'g3'] #group ids of the meter clusters
+	#-------SET group ids from data folder~~~~~~~~~~~
+	group_ids = [ group[ : group.rindex("_")] for group in groups] 
 
-	train_model(model, train_data)
-	evaluate_model(model, test_data, normalize, scaler)
+	rmse_list = []
+	for gid in group_ids:
+		print("--------------------------------------")
+		train_data, test_data, scaler = get_train_test_data(gid)
+	
+		model = LSTM()
+		model.to(device)
+		loss_function = nn.MSELoss().to(device)
+		optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+		#print(model)
 
+		model = train_model(model, train_data)
+		rmse = evaluate_model(model, gid, test_data, scaler)
+		rmse_list.append({'group_id': gid, 'rmse': rmse})
+		
+	helper.make_dir(base_path, "results")	
+	helper.write_csv(base_path + "/results/single", rmse_list, ["group_id", "rmse"])

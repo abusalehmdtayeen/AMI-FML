@@ -94,11 +94,13 @@ class LocalModel(object):
 		""" 
 		Returns the inference loss on test data.
 		"""
-
-		test_data = torch.FloatTensor(self.test).view(-1)	
-		test_seq = create_inout_sequences(test_data, self.window)
+		
+		model.to(self.device)
+		test_tensor = torch.FloatTensor(self.test).view(-1)	
+		test_seq = utils.create_inout_sequences(test_tensor, self.window)
 
 		model.eval()
+		#print(next(model.parameters()).is_cuda)
 		losses = []
 		total_seq = 0
 		test_predictions = []
@@ -106,26 +108,26 @@ class LocalModel(object):
 		for seq, labels in test_seq:	
 			seq, labels = seq.to(self.device), labels.to(self.device)
 			with torch.no_grad():
-				model.hidden = (torch.zeros(1, 1, model.hidden_layer_size, device=self.device), torch.zeros(1, 1, model.hidden_layer_size, device=self.device))
+				model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=self.device), torch.zeros(1, 1, model.hidden_layer_size, device=self.device))
 				# Inference
 				outputs = model(seq)
 				batch_loss = self.criterion(outputs, labels)
 				losses.append(batch_loss.item())
 				
-				test_predictions.append(model(seq).item())
+				test_predictions.append(outputs.item())
 				actual_predictions.append(labels.item())
 			total_seq += 1		
 
-		if self.normalized and self.scaler is not None:
+		if self.normalize and self.scaler is not None:
 			actual_predictions = self.scaler.inverse_transform(np.array(actual_predictions).reshape(-1, 1))
 			test_predictions = self.scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1))
 		
 			test_predictions = test_predictions[:,0]
 			actual_predictions = actual_predictions[:,0]      
 
-		rmse = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
+		#rmse = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
 		
-		return rmse, losses
+		return actual_predictions, test_predictions, losses
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 '''

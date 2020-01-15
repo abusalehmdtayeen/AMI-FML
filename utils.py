@@ -27,15 +27,16 @@ def plot_predictions(fig_path, gid, test_values, test_predictions):
 	plt.close()
 
 #----------------------------------------
-def plot_errors(fig_path, gid, errors):
+def plot_errors(fig_path, gid, errors, eid="single"):
 	plt.title('Timestep vs Squared Errors')
 	plt.ylabel('Squared Errors')
+	plt.xlabel('Timesteps')
 	plt.grid(True)
 	plt.autoscale(axis='x', tight=True)
-	plt.plot(errors)
+	plt.plot(range(len(errors)), errors)
 	
 	#plt.show()
-	plt.savefig(fig_path+"/g"+str(gid)+"_test_errors.pdf", bbox_inches = "tight")
+	plt.savefig(fig_path+"/"+str(gid)+"_test_errors_"+eid+".pdf", bbox_inches = "tight")
 	plt.close()
 
 #------------------------------------------
@@ -46,7 +47,7 @@ def plot_losses(fig_path, gid, losses, lid="single"):
 	plt.plot(range(len(losses)), losses, color='r')
 	plt.ylabel('MSE')
 	plt.xlabel('Timesteps')
-	plt.savefig(fig_path +"/g"+ str(gid)+"_test_loss_"+ lid + ".pdf", bbox_inches = "tight")
+	plt.savefig(fig_path +"/"+ str(gid)+"_test_loss_"+ lid + ".pdf", bbox_inches = "tight")
 	plt.close()
 
 #--------------------------------------

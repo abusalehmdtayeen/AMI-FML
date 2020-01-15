@@ -200,8 +200,8 @@ if __name__ == "__main__":
 	
 	#~~~~~~~~~~~PARAMETERS~~~~~~~~~~~~~~~~
 	suffix = "_half_hr"
-	num_groups = 4
-	size_group = 3
+	num_groups = 10 #2
+	size_group = 4 #3
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	#get all meter ids from file names
 	meter_files =  helper.find_filenames_ext(data_path+"/meter_load"+suffix+"/", ".csv")
