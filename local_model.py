@@ -9,16 +9,19 @@ import numpy as np
 import pandas as pd
 import utils
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import MinMaxScaler
 from torch import nn
 
 #=============================================
 class LocalModel(object):
 
-	def __init__(self, gid, split_ratio=0.8, normalize=True, window = 24,local_epochs=10, device="cpu"):
-		self.data_path = os.getcwd() + "/data/group_load/"
+	def __init__(self, gid, split_ratio=0.8, test_len=None, normalize=True, window = 24,local_epochs=10, device="cpu"):
+		#self.data_path = os.getcwd() + "/data/group_load/"
+		self.data_path = os.getcwd() + "/data/meter_load_half_hr/"
 		self.normalize = normalize
 		self.scaler = None
+		self.test_len = test_len
 		self.train, self.test = self.train_test_data(gid, split_ratio)
 		self.device = torch.device(device)		
 		self.window = window
@@ -31,9 +34,11 @@ class LocalModel(object):
 		"""
 		Returns train and test dataset for a given group.
 		"""
-		dataframe = pd.read_csv(self.data_path+str(g_id)+"_sum"+".csv")
+		#dataframe = pd.read_csv(self.data_path+str(g_id)+"_val"+".csv")
+		dataframe = pd.read_csv(self.data_path+str(g_id)+".csv")
 	
-		all_data = dataframe['group_sum'].values
+		#all_data = dataframe['group_values'].values
+		all_data = dataframe['load'].values
 		all_data = all_data.astype('float32')
 	    
 		if self.normalize:
@@ -45,8 +50,12 @@ class LocalModel(object):
 			self.scaler = scaler
 
 		# split into train and test sets (default: 80/20)
-		train_size = int(len(all_data) * split_ratio)
-		test_size = len(all_data) - train_size
+		if self.test_len is None:
+			train_size = int(len(all_data) * split_ratio)
+			test_size = len(all_data) - train_size
+		else:
+			train_size = len(all_data) - self.test_len		
+			test_size = self.test_len
 		
 		train_data, test_data = all_data[:train_size], all_data[train_size:len(all_data)]
 		if not self.normalize:
@@ -85,7 +94,7 @@ class LocalModel(object):
 			ep_loss = sum(batch_loss)/len(batch_loss)
 			epoch_loss.append(ep_loss)
 
-			print(f'Global Round: {global_round:2}  Local epoch: {i:3}  Loss: {ep_loss:10.6f}')
+			print(f'Global Round: {global_round:2}  Local epoch: {i+1:3}  Loss: {ep_loss:10.6f}')
              
 		return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -94,7 +103,6 @@ class LocalModel(object):
 		""" 
 		Returns the inference loss on test data.
 		"""
-		
 		model.to(self.device)
 		test_tensor = torch.FloatTensor(self.test).view(-1)	
 		test_seq = utils.create_inout_sequences(test_tensor, self.window)
@@ -130,32 +138,3 @@ class LocalModel(object):
 		return actual_predictions, test_predictions, losses
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-'''
-def test_inference(model, test_data, device):
-	""" 
-	Returns the loss on test data.
-	"""
-
-	model.eval()
-	loss = 0.0
-
-	criterion = nn.NLLLoss().to(device)
-	
-
-    for batch_idx, (images, labels) in enumerate(testloader):
-        images, labels = images.to(device), labels.to(device)
-
-        # Inference
-        outputs = model(images)
-        batch_loss = criterion(outputs, labels)
-        loss += batch_loss.item()
-
-        # Prediction
-        _, pred_labels = torch.max(outputs, 1)
-        pred_labels = pred_labels.view(-1)
-        correct += torch.sum(torch.eq(pred_labels, labels)).item()
-        total += len(labels)
-
-    accuracy = correct/total
-    return accuracy, loss
-'''

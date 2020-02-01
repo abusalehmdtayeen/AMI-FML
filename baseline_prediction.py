@@ -5,6 +5,7 @@
 
 import os
 import sys
+import time
 import math
 import torch
 from torch import nn
@@ -14,6 +15,7 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error
 
 from models import LSTM
 import helper
@@ -24,9 +26,10 @@ base_path = os.getcwd()
 data_path = base_path + "/data/group_load/"
 #============PARAMETERS===============
 split_ratio = 0.80 #split ratio for train data
+test_len = 1440 #None
 normalize = True #normalize data
-window_size = 24
-epochs = 2
+window_size = 48
+epochs = 5
 #====================================
 
 # torch.cuda.is_available() checks and returns a Boolean True if a GPU is available, else it'll return False
@@ -44,12 +47,12 @@ else:
 # load the dataset
 def get_train_test_data(group_id):
 	print("Getting data of group with ID: %s"%str(group_id))
-	dataframe = pd.read_csv(data_path+str(group_id)+"_sum"+".csv")
+	dataframe = pd.read_csv(data_path+str(group_id)+"_val"+".csv")
 	#print(dataframe.shape)
 	#print(dataframe.head())
 	#plot_dataset(dataframe)
 
-	all_data = dataframe['group_sum'].values
+	all_data = dataframe['group_value'].values
 	all_data = all_data.astype('float32')
 	print("Total number of timesteps: %d"%all_data.shape[0])
 	#print(all_data)
@@ -63,8 +66,12 @@ def get_train_test_data(group_id):
 		all_data = all_data_normalized
 
 	# split into train and test sets (default: 80/20)
-	train_size = int(len(all_data) * split_ratio)
-	test_size = len(all_data) - train_size
+	if test_len is None:
+		train_size = int(len(all_data) * split_ratio)
+		test_size = len(all_data) - train_size
+	else:
+		train_size = len(all_data) - test_len		
+		test_size = test_len
 		
 	train_data, test_data = all_data[:train_size], all_data[train_size:len(all_data)]
 	#train_data = all_data[:-test_data_size]
@@ -77,6 +84,7 @@ def get_train_test_data(group_id):
 	
 	print("Total test timesteps: %d"%len(test_data))
 	#print(test_data)
+		
 	return train_data, test_data, scaler
 
 #---------------------------------------
@@ -109,6 +117,11 @@ def train_model(model, train_data):
 #-----------------------------------
 #evaluate the model with test data
 def evaluate_model(model, group_id, test_data, scaler=None):
+	test_data_max = np.amax(test_data)	
+	test_data_min = np.amin(test_data)
+	print("y_max of test data: %f"%test_data_max)
+	print("y_min of test data: %f"%test_data_min)
+
 	test_data = torch.FloatTensor(test_data).view(-1)	
 	test_seq = utils.create_inout_sequences(test_data, window_size)
 	#print (test_seq)
@@ -154,17 +167,22 @@ def evaluate_model(model, group_id, test_data, scaler=None):
 	utils.plot_errors(base_path + "/figures/", group_id, errors, eid="single")
 	utils.plot_losses(base_path + "/figures/", group_id, losses, lid="single")
 
-	testScore = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
-	print('Test score of group with ID %s : %.2f RMSE' %(str(group_id), testScore))
+	RMSE = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
+	NRMSE = RMSE / (test_data_max - test_data_min)
+	MAE = mean_absolute_error(actual_predictions, test_predictions)
+	print('RMSE of group with ID %s : %.2f' %(str(group_id), RMSE))
+	print('NRMSE of group with ID %s : %.2f' %(str(group_id), NRMSE))
+	print('MAE of group with ID %s : %.2f' %(str(group_id), MAE))
 
-	return testScore
+	return RMSE, NRMSE, MAE
 
 #-------------------------------
 if __name__ == '__main__':
 	
+	start_time = time.time()
 	groups = helper.find_filenames_ext(data_path)
 	#~~~~~~~~SET group ids manually~~~~~~~~~~~~~~~
-	#group_ids = ['g1', 'g2', 'g3'] #group ids of the meter clusters
+	#group_ids = ['g1'] #group ids of the meter clusters
 	#-------SET group ids from data folder~~~~~~~~~~~
 	group_ids = [ group[ : group.rindex("_")] for group in groups] 
 
@@ -180,8 +198,10 @@ if __name__ == '__main__':
 		#print(model)
 
 		model = train_model(model, train_data)
-		rmse = evaluate_model(model, gid, test_data, scaler)
-		rmse_list.append({'group_id': gid, 'rmse': rmse})
+		rmse, nrmse, mae = evaluate_model(model, gid, test_data, scaler)
+		rmse_list.append({'group_id': gid, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})
 		
 	helper.make_dir(base_path, "results")	
-	helper.write_csv(base_path + "/results/single", rmse_list, ["group_id", "rmse"])
+	helper.write_csv(base_path + "/results/single", rmse_list, ["group_id", "RMSE", "NRMSE" ,"MAE"])
+
+	print('\nTotal Execution Time: {0:0.4f}'.format(time.time()-start_time))

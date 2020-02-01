@@ -64,7 +64,7 @@ def make_meter_groups(meter_ids, group_size = 100, group_limit=None):
 		helper.empty_dir(data_path + "group_ids")
 
 	for gid in meter_groups.keys():
-		helper.write_txt(data_path+"group_ids"+"/"+"group-"+str(gid), meter_groups[gid])
+		helper.write_txt(data_path+"group_ids"+"/"+"g"+str(gid), meter_groups[gid])
 
 	#print (meter_groups)
 	return meter_groups
@@ -185,13 +185,16 @@ def create_group_meter_data(meter_groups, time_scale=1.0):
 				for meter in meters:
 					#print(sorted_meter_data[meter][day][t_indx])
 					group_sum += sorted_meter_data[meter][day][t_indx]
+
+				group_avg = float(group_sum) / len(meters)
 				 
-				group_data_sum.append({'day_time': str(day)+"-"+str(t_indx+1), 'group_sum':group_sum}) 
+				group_data_sum.append({'day_time': str(day)+"-"+str(t_indx+1), 'group_value':group_avg})
+				#group_data_sum.append({'day_time': str(day)+"-"+str(t_indx+1), 'group_value':group_sum}) 
 				total_entries += 1
 
 		assert len(group_data_sum) == total_entries, "Data length does not match" 
 		#print(len(group_data_sum))
-		helper.write_csv(data_path+"group_load/"+"g"+str(gid)+"_sum", group_data_sum, ["day_time", "group_sum"])
+		helper.write_csv(data_path+"group_load/"+"g"+str(gid)+"_val", group_data_sum, ["day_time", "group_value"])
 	
 #----------------------------------
 
@@ -201,13 +204,17 @@ if __name__ == "__main__":
 	#~~~~~~~~~~~PARAMETERS~~~~~~~~~~~~~~~~
 	suffix = "_half_hr"
 	num_groups = 10 #2
-	size_group = 4 #3
+	size_group = 360 #3
+	num_meters_limit = 3600
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	#get all meter ids from file names
 	meter_files =  helper.find_filenames_ext(data_path+"/meter_load"+suffix+"/", ".csv")
-	meters = [ meter_file[ : meter_file.rindex(".")] for meter_file in meter_files ]
-	print("Total number of meter ids = %d"%len(meters))
-	
+	meter_id_list = [ int(meter_file[ : meter_file.rindex(".")]) for meter_file in meter_files ]
+	print("Total number of meter ids = %d"%len(meter_id_list))
+	meters = sorted(meter_id_list)
+	meters  = meters[:num_meters_limit]
+	print("Number of meters chosen: %d"%len(meters))
+	#sys.exit(0)
 	#make two groups with each with size 3
 	meter_groups = make_meter_groups(meter_ids=meters, group_size=size_group, group_limit=num_groups)
 	#generate half hr data for each group
