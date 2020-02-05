@@ -23,14 +23,21 @@ import utils
 
 #=====================================
 base_path = os.getcwd()
-data_path = base_path + "/data/group_load/"
+#data_path = base_path + "/data/group_load/"
 #============PARAMETERS===============
 split_ratio = 0.80 #split ratio for train data
-test_len = 1440 #None
+test_len = 1440 #number of data points to test [**Note: if set to None, data will be divided using split ratio]
 normalize = True #normalize data
+num_hidden_nodes = 30 #number of hidden nodes in LSTM model 
 window_size = 48
-epochs = 5
+epochs = 2
+random_group = False # whether groups were formed by choosing meters randomly or in sorted order
+gid = 'g1' #group id of the meters 
+write_predictions = False
 #====================================
+group_type = "random_" if random_group else ""
+data_path = base_path + "/data/" + group_type + "group_load/"
+#================================
 
 # torch.cuda.is_available() checks and returns a Boolean True if a GPU is available, else it'll return False
 is_cuda = torch.cuda.is_available()
@@ -158,14 +165,18 @@ def evaluate_model(model, group_id, test_data, scaler=None):
 	#print("-----------------")
 	#print(test_predictions[:5])	
 	#print("-----------------")
-	helper.make_dir(base_path, "figures")
-	utils.plot_predictions(base_path + "/figures/", group_id, actual_predictions, test_predictions)
+	helper.make_dir(base_path, "raw_results")
+	if write_predictions:
+		utils.write_predictions(base_path + "/raw_results/"+ "single-group-"+group_type+str(gid), actual_predictions, test_predictions)
 
-	errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
+	#helper.make_dir(base_path, "figures")
+	#utils.plot_predictions(base_path + "/figures/", group_id, actual_predictions, test_predictions)
+
+	#errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
 	#print(errors[: 5])
 	#print(losses[: 5])
-	utils.plot_errors(base_path + "/figures/", group_id, errors, eid="single")
-	utils.plot_losses(base_path + "/figures/", group_id, losses, lid="single")
+	#utils.plot_errors(base_path + "/figures/", group_id, errors, eid="single")
+	#utils.plot_losses(base_path + "/figures/", group_id, losses, lid="single")
 
 	RMSE = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
 	NRMSE = RMSE / (test_data_max - test_data_min)
@@ -180,18 +191,18 @@ def evaluate_model(model, group_id, test_data, scaler=None):
 if __name__ == '__main__':
 	
 	start_time = time.time()
-	groups = helper.find_filenames_ext(data_path)
+	#groups = helper.find_filenames_ext(data_path)
 	#~~~~~~~~SET group ids manually~~~~~~~~~~~~~~~
-	#group_ids = ['g1'] #group ids of the meter clusters
+	group_ids = [gid] #group ids of the meter clusters
 	#-------SET group ids from data folder~~~~~~~~~~~
-	group_ids = [ group[ : group.rindex("_")] for group in groups] 
+	#group_ids = [ group[ : group.rindex("_")] for group in groups] 
 
 	rmse_list = []
 	for gid in group_ids:
 		print("--------------------------------------")
 		train_data, test_data, scaler = get_train_test_data(gid)
 	
-		model = LSTM()
+		model = LSTM(hidden_layer_size=num_hidden_nodes)
 		model.to(device)
 		loss_function = nn.MSELoss().to(device)
 		optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -202,6 +213,6 @@ if __name__ == '__main__':
 		rmse_list.append({'group_id': gid, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})
 		
 	helper.make_dir(base_path, "results")	
-	helper.write_csv(base_path + "/results/single", rmse_list, ["group_id", "RMSE", "NRMSE" ,"MAE"])
+	helper.append_csv(base_path + "/results/single-group-"+group_type, rmse_list, ["group_id", "RMSE", "NRMSE" ,"MAE"])
 
 	print('\nTotal Execution Time: {0:0.4f}'.format(time.time()-start_time))
