@@ -30,8 +30,12 @@ data_path = base_path + "/data/meter_load_half_hr/"
 split_ratio = 0.80 #split ratio for train data
 test_len = 1440 #None
 normalize = True #normalize data
+num_hidden_nodes = 30 #number of hidden nodes in LSTM model 
 window_size = 48
-epochs = 5
+epochs = 2
+random_group = False # whether groups were formed by choosing meters randomly or in sorted order
+gid = 'g1' #group id of the meters 
+write_predictions = False
 #====================================
 
 # torch.cuda.is_available() checks and returns a Boolean True if a GPU is available, else it'll return False
@@ -167,14 +171,19 @@ def evaluate_model(model, group_id, test_data, scaler=None):
 	#print("-----------------")
 	#print(test_predictions[:5])	
 	#print("-----------------")
-	helper.make_dir(base_path, "figures")
-	utils.plot_predictions(base_path + "/figures/", group_id, actual_predictions, test_predictions)
+	meter_id = group_id 
+	helper.make_dir(base_path, "raw_results")
+	if write_predictions:
+		utils.write_predictions(base_path + "/raw_results/"+ "single-local-"+group_type+str(gid)+"-"+str(meter_id), actual_predictions, test_predictions)
 
-	errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
+	helper.make_dir(base_path, "figures")
+	#utils.plot_predictions(base_path + "/figures/", group_id, actual_predictions, test_predictions)
+
+	#errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
 	#print(errors[: 5])
 	#print(losses[: 5])
-	utils.plot_errors(base_path + "/figures/", group_id, errors, eid="agg-single")
-	utils.plot_losses(base_path + "/figures/", group_id, losses, lid="agg-single")
+	#utils.plot_errors(base_path + "/figures/", group_id, errors, eid="agg-single")
+	#utils.plot_losses(base_path + "/figures/", group_id, losses, lid="agg-single")
 
 	RMSE = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
 	NRMSE = RMSE / (test_data_max - test_data_min)
@@ -191,28 +200,29 @@ if __name__ == '__main__':
 	start_time = time.time()
 	
 	groups = helper.find_filenames_ext(data_path)
+	group_type = "random_" if random_group else "" 
 	#~~~~~~~~SET group ids manually~~~~~~~~~~~~~~~
 	#group_ids = ['7341', 'g2', 'g3'] #group ids of the meter clusters
 	#-------SET group ids from data folder~~~~~~~~~~~
 	#group_ids = [ group[ : group.rindex("_")] for group in groups]
-	group_ids = helper.read_txt(base_path+"/data/group_ids/g1") 
+	group_ids = helper.read_txt(base_path+"/data/"+group_type+"group_ids/"+str(gid)) 
 
 	rmse_list = []
-	for gid in tqdm(group_ids):
+	for mid in tqdm(group_ids):
 		print("--------------------------------------")
-		train_data, test_data, scaler = get_train_test_data(gid)
+		train_data, test_data, scaler = get_train_test_data(mid)
 	
-		model = LSTM()
+		model = LSTM(hidden_layer_size=num_hidden_nodes)
 		model.to(device)
 		loss_function = nn.MSELoss().to(device)
 		optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 		#print(model)
 
 		model = train_model(model, train_data)
-		rmse, nrmse, mae = evaluate_model(model, gid, test_data, scaler)
-		rmse_list.append({'meter_id': gid, 'rmse': rmse, 'nrmse': nrmse, 'mae': mae})
+		rmse, nrmse, mae = evaluate_model(model, mid, test_data, scaler)
+		rmse_list.append({'meter_id': mid, 'rmse': rmse, 'nrmse': nrmse, 'mae': mae})
 		
 	end_time = time.time()
 	print('\nTotal Run Time: {0:0.4f}'.format(end_time-start_time))
 	helper.make_dir(base_path, "results")	
-	helper.write_csv(base_path + "/results/single-meter", rmse_list, ["meter_id", "rmse", "nrmse","mae"])
+	helper.write_csv(base_path + "/results/single-meter-"+group_type+str(gid), rmse_list, ["meter_id", "rmse", "nrmse","mae"])

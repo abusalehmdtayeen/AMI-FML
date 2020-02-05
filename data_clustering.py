@@ -28,7 +28,7 @@ def timeit(method):
     return timed
 
 #------------------------------------------
-def make_meter_groups(meter_ids, group_size = 100, group_limit=None):
+def make_meter_groups(meter_ids, group_size = 100, group_limit=None, randomize=True):
 	'''
 	Make groups of meters.
 
@@ -38,14 +38,18 @@ def make_meter_groups(meter_ids, group_size = 100, group_limit=None):
 		The size of each meter group (default is 100)
 	group_limit : int, optional
 		The number of groups to be created from the meters (default is None)
+	randomize: boolean, optional 
+		Whether meter_ids should be randomized
 	Returns
     -------
     dict
         a dict of meter groups
 	'''
 	meter_groups = {}
-	random.seed(2)
-	random.shuffle(meter_ids)
+	if randomize:
+		random.seed(2)
+		random.shuffle(meter_ids)
+
 	group_num = 1
 	for i in range((len(meter_ids) // group_size) + 1):
 		group = meter_ids[i*group_size:i*group_size + group_size]
@@ -58,27 +62,32 @@ def make_meter_groups(meter_ids, group_size = 100, group_limit=None):
 		group_num += 1
 
 	print("Number of groups: %d"%len(meter_groups.keys()))
+
 	#write the meter ids of each group in file
-	dir_exists = helper.make_dir(data_path, "group_ids")
+	group_type = "random_" if randomize else ""
+
+	dir_exists = helper.make_dir(data_path, group_type+"group_ids")
 	if not dir_exists:
-		helper.empty_dir(data_path + "group_ids")
+		helper.empty_dir(data_path + group_type+"group_ids")
 
 	for gid in meter_groups.keys():
-		helper.write_txt(data_path+"group_ids"+"/"+"g"+str(gid), meter_groups[gid])
+		helper.write_txt(data_path+group_type+"group_ids"+"/"+"g"+str(gid), meter_groups[gid])
 
 	#print (meter_groups)
 	return meter_groups
 
 #-----------------------------------------------------------------
 @timeit
-def create_group_meter_data(meter_groups, time_scale=1.0):
+def create_group_meter_data(meter_groups, time_scale=1.0, random_group=True):
 	'''
 	Create half an hour/hourly data for each group of meters sorted by time
 
 	Parameters
     ----------
 	time_scale : float, optional
-		granularity of data (default is 1.0 which means hourly data)
+		granularity of data (default is 1.0 which means hourly data, 0.5 means half hr data)
+	random_group: bool, optional
+		whether groups were formed by randomly chosing meters or in sorted order
 	'''
 
 	if (time_scale >= 1.0):
@@ -89,9 +98,10 @@ def create_group_meter_data(meter_groups, time_scale=1.0):
 		time_len = 48
 
 	#create output directory for group data 
-	dir_exists = helper.make_dir(data_path, "group_load")
+	group_type = "random_" if random_group else ""
+	dir_exists = helper.make_dir(data_path, group_type+"group_load")
 	if not dir_exists:
-		helper.empty_dir(data_path + "group_load")
+		helper.empty_dir(data_path + group_type + "group_load")
 
 	for gid in meter_groups:
 		group_meters = meter_groups[gid]
@@ -194,7 +204,7 @@ def create_group_meter_data(meter_groups, time_scale=1.0):
 
 		assert len(group_data_sum) == total_entries, "Data length does not match" 
 		#print(len(group_data_sum))
-		helper.write_csv(data_path+"group_load/"+"g"+str(gid)+"_val", group_data_sum, ["day_time", "group_value"])
+		helper.write_csv(data_path+group_type+"group_load/"+"g"+str(gid)+"_val", group_data_sum, ["day_time", "group_value"])
 	
 #----------------------------------
 
@@ -203,9 +213,10 @@ if __name__ == "__main__":
 	
 	#~~~~~~~~~~~PARAMETERS~~~~~~~~~~~~~~~~
 	suffix = "_half_hr"
-	num_groups = 10 #2
-	size_group = 360 #3
+	num_groups = 2 #2
+	size_group = 50 #3
 	num_meters_limit = 3600
+	randomize = False #whether meters will be chosen randomly to form group; otherwise groups are formed in sorted order
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	#get all meter ids from file names
 	meter_files =  helper.find_filenames_ext(data_path+"/meter_load"+suffix+"/", ".csv")
@@ -216,9 +227,9 @@ if __name__ == "__main__":
 	print("Number of meters chosen: %d"%len(meters))
 	#sys.exit(0)
 	#make two groups with each with size 3
-	meter_groups = make_meter_groups(meter_ids=meters, group_size=size_group, group_limit=num_groups)
+	meter_groups = make_meter_groups(meter_ids=meters, group_size=size_group, group_limit=num_groups, randomize=randomize)
 	#generate half hr data for each group
-	create_group_meter_data(meter_groups, 0.5)
+	create_group_meter_data(meter_groups, 0.5, randomize)
 	print("%d groups each with size %d are created"%(num_groups, size_group))
 
 	
