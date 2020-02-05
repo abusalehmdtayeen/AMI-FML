@@ -215,7 +215,7 @@ if __name__ == "__main__":
 	suffix = "_half_hr"
 	num_groups = 2 #2
 	size_group = 50 #3
-	num_meters_limit = 3600
+	num_meters_limit = 3600 #consider the first 'num_meters_limit' meters only to form groups 
 	randomize = False #whether meters will be chosen randomly to form group; otherwise groups are formed in sorted order
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	#get all meter ids from file names
