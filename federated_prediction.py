@@ -31,12 +31,12 @@ global_epochs = 2 #number of epochs the global model will run
 local_epochs = 2  #number of epochs each local model will run
 num_hidden_nodes = 30 #number of hidden nodes in LSTM model 
 frac = 0.7 #fraction of groups/meters to choose [**Note: currently not used. left for future] 
-num_participants = 100  #number of participants to be applied to federated learning [**Note: set to None to use 'frac' of total participants]
+num_participants = 20  #number of participants to be applied to federated learning [**Note: set to None to use 'frac' of total participants]
 split_ratio = 0.8 #split ratio for train data  [**Note: split ratio will only work when test_len is set to None]
 test_len = 1440 # 30 days (30*48) of data  [**Note: set to None to split data based on a ratio]
 normalize_data = True  #perform max-min normalization on the data
 window_size = 48  #length of the input sequence to be used for predicting the next time step data point 
-take_all = True #whether federated learning will be applied to all participants
+take_all = False #whether federated learning will be applied to all participants
 random_group = False # whether groups were formed by choosing meters randomly or in sorted order
 gid = 'g1' #group id of the meters 
 write_predictions = False
@@ -205,7 +205,7 @@ if __name__ == '__main__':
 
 		for indx in tqdm(group_indices):
 			print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-			print("Training group with ID: %s"%str(group_ids[indx]))
+			print("Training meter with ID: %s"%str(group_ids[indx]))
 			#~~~~~~~~~~~~~~~when FRACTION OF ALL PARTICIPANTS are choosen randomly~~~~~~~~~~~~
 			if not take_all:
 				local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)

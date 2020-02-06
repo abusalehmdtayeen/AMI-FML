@@ -150,12 +150,12 @@ class LocalModel(object):
 		# Set mode to train model
 		model.train()
 		
-		test_predictions = []
-		actual_predictions = []
 		epoch_loss = []
 
 		for i in range(self.test_epochs):
 			batch_loss = []
+			test_predictions = []
+			actual_predictions = []
 			for indx, (seq, labels) in enumerate(test_seq):
 				if indx < test_index:
 					continue

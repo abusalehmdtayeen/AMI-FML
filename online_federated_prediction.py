@@ -27,17 +27,21 @@ from online_local_model import LocalModel
 from models import LSTM
 
 #==========PARAMETERS=======================
-online_epochs = 1
-global_epochs = 2
-local_epochs = 2
-frac = 0.7 #fraction of groups/meters to choose
-split_ratio = 0.8 #split ratio for train data
-test_len = 1440
-test_range = 48 
-normalize_data = True
-window_size = 48
+online_epochs = 2 #number of epochs each local model will run during online training
+global_epochs = 2 #number of epochs the global model will run
+local_epochs = 2  #number of epochs each local model will run
+num_hidden_nodes = 30 #number of hidden nodes in LSTM model 
+split_ratio = 0.8 #split ratio for train data  [**Note: split ratio will only work when 'test_len' parameter is set to None]
+test_len = 1440 #number of test points= 30 days (30*48) of data  [**Note: set to None to split data based on a ratio]
+test_range = 48 #the number of time steps after which global model will be updated in case of online training
+normalize_data = True #perform max-min normalization on the data
+window_size = 48 #length of the input sequence to be used for predicting the next time step data point 
 take_all = False #whether federated learning will be applied to all participants
-num_participants = 50  #number of participants to be applied to federated learning
+frac = 0.7 #fraction of groups/meters to choose [**Note: currently not used. left for future] 
+num_participants = 50  #number of participants to be applied to federated learning [**Note: set to None to use 'frac' of total participants]
+random_group = False # whether groups were formed by choosing meters randomly or in sorted order
+gid = 'g1' #group id of the meters 
+write_predictions = False
 #===========================================
 
 # torch.cuda.is_available() checks and returns a Boolean True if a GPU is available, else it'll return False
@@ -115,7 +119,8 @@ def global_train_test(g_id):
 	"""
 	Returns train and test dataset for a given group.
 	"""
-	dataframe = pd.read_csv(base_path + "/data/group_load/"+str(g_id)+"_val"+".csv")
+	group_type = "random_" if random_group else "" 
+	dataframe = pd.read_csv(base_path + "/data/"+group_type+"group_load/"+str(g_id)+"_val"+".csv")
 	
 	all_data = dataframe['group_value'].values
 	
@@ -150,8 +155,6 @@ if __name__ == '__main__':
 
     # load meter groups
 	#groups = helper.find_filenames_ext(base_path + "/data/group_load/")
-
-	gid = 'g1' #group id of the meters 
 	#-------SET group ids from data folder~~~~~~~~~~~
 	#group_ids = [ group[ : group.rindex("_")] for group in groups] 
 
@@ -159,17 +162,18 @@ if __name__ == '__main__':
 	global_test_max = np.amax(global_test)	
 	global_test_min = np.amin(global_test)
 
-	meter_ids = helper.read_txt(base_path + "/data/group_ids/" + gid)
+	group_type = "random_" if random_group else "" 
+	meter_ids = helper.read_txt(base_path + "/data/"+group_type+"group_ids/" + gid)
 	#~~~~~~~~SET meter_ids from folder~~~~~~~~~~~~~~
 	group_ids = [ int(meter) for meter in meter_ids ] #for this experiment each group corresponds to one meter 
 	#~~~~~~~~SET meter/group ids manually~~~~~~~~~~~~
 	#group_ids = [4820, 2826, 7370]
-	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	
-	num_groups = len(group_ids)	
+	#~~~~~~~~~~~~~~~~~TOTAL NUMBER OF PARTICIPANTS~~~~~~~~~~~~~~~~~~~~~~~~		
+	num_groups = len(group_ids)	# **for this experiment num_groups = number of meters in a group
 	#num_groups = len(groups)
 
 	# create model object
-	global_model = LSTM()
+	global_model = LSTM(hidden_layer_size=num_hidden_nodes)
     
     # Set the model to train and send it to device.
 	global_model.to(device)
@@ -181,12 +185,12 @@ if __name__ == '__main__':
     # Training
 	train_loss = []
     
-	#~~~~~~~~~~~~~~~~~CHOOSE ALL GROUPS~~~~~~~~~~~~~~~
+	#~~~~~~~~~~~~~~CHOOSE ALL PARTICIPANTS~~~~~~~~~~~~~
 	local_models = []	
 	if take_all:		
 		group_indices = np.arange(num_groups)
 		for indx in group_indices:
-			local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+			local_model = LocalModel(group_ids[indx], split_ratio, test_len, test_range, normalize=normalize_data, window=window_size, local_epochs=local_epochs, test_epochs=online_epochs, device=device)
 			local_models.append(local_model)
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -194,7 +198,7 @@ if __name__ == '__main__':
 		local_weights, local_losses = [], []
 	
 		global_model.train()
-		#~~~~~~~~~~~~~~~~~CHOOSE FRACTION OF ALL GROUPS RANDOMLY IN EACH EPOCH~~~~~~~~~~~ 
+		#~~~~~~~~~~~~~~~~~CHOOSE FRACTION OF ALL PARTICIPANTS RANDOMLY IN EACH EPOCH~~~~~~~~~~~  
 		if not take_all:
 			m = max(int(frac * num_groups), 1)
 			if num_participants is None: 
@@ -202,13 +206,14 @@ if __name__ == '__main__':
 			else:
 				group_indices = np.random.choice(range(num_groups), num_participants, replace=False)
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+		
 		for indx in tqdm(group_indices):
 			print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-			print("Training group with ID: %s"%str(group_ids[indx]))
+			meter_id = group_ids[indx]
+			print("Training meter with ID: %s"%str(meter_id))
 			#~~~~~~~~~~~~~~~when FRACTION OF ALL GROUPS are choosen randomly~~~~~~~~~~~~
 			if not take_all:
-				local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+				local_model = LocalModel(group_ids[indx], split_ratio, test_len, test_range, normalize=normalize_data, window=window_size, local_epochs=local_epochs, test_epochs=online_epochs, device=device)
 				#local_models.append(local_model)
 			#~~~~~~~~~~~~~~~~~when ALL GROUPS are chosen~~~~~~~~~~~~~~~~~~~~~~~~~~~
 			else:			
@@ -233,7 +238,7 @@ if __name__ == '__main__':
 	print('\nTotal Training Time: {0:0.4f}'.format(time.time()-start_time))
 	#------------------------------------------------------------------------
 	helper.make_dir(base_path, "results")
-	helper.write_csv(base_path + "/results/online-federated-"+gid+"-train-avg-loss-t"+str(test_range), train_loss, ["epoch", "locals_loss_avg"])
+	helper.write_csv(base_path + "/results/online-federated-"+group_type+"-"+gid+"-train-avg-loss-t"+str(test_range), train_loss, ["epoch", "locals_loss_avg"])
 
 
 	#~~~~~~~~~~~~~~~~~ONLINE TRAINING~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -242,7 +247,7 @@ if __name__ == '__main__':
 	global_predictions = {}
 	global_model.to(device)
 
-	for epoch in range(online_epochs):
+	for epoch in range(1):
 		local_weights, local_losses = [], []
 	
 		global_model.train()
@@ -254,6 +259,7 @@ if __name__ == '__main__':
 			else:
 				group_indices = np.random.choice(range(num_groups), num_participants, replace=False)
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		print("Number of participants in online training: %d"%len(group_indices))
 		test_index = 0
 		while test_index < test_len-window_size:
 			print("Predicting Test Point: %d"%test_index)
@@ -268,15 +274,14 @@ if __name__ == '__main__':
 				global_predictions['pred'] = predicted_values
 			else:
 				global_predictions['pred'] = np.concatenate( (global_predictions['pred'], predicted_values) )
-			#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+			#~~~~~~~~~~~~~~~~~~~~~~Training of Local Models~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 			for indx in tqdm(group_indices):
 				meter_id = group_ids[indx]
 				print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-				print("Training meter with ID: %s"%str(group_ids[indx]))
+				print("Training meter with ID: %s"%str(meter_id)
 				#~~~~~~~~~~~~~~~when FRACTION OF ALL GROUPS are choosen randomly~~~~~~~~~~~~
 				if not take_all:
-					local_model = LocalModel(group_ids[indx], split_ratio, test_len, test_range, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+					local_model = LocalModel(meter_id, split_ratio, test_len, test_range, normalize=normalize_data, window=window_size, local_epochs=local_epochs, test_epochs=online_epochs, device=device)
 					#local_models.append(local_model)
 				#~~~~~~~~~~~~~~~~~when ALL GROUPS are chosen~~~~~~~~~~~~~~~~~~~~~~~~~~~
 				else:			
@@ -301,13 +306,7 @@ if __name__ == '__main__':
 
 			test_index = test_index+test_range
 			
-			loss_avg = sum(local_losses) / len(local_losses)
-
-		#train_loss.append({'epoch': epoch, 'locals_loss_avg': loss_avg})
-		print("---------------------------------------------------")
-		print('Online Global Training Round : {}, Average loss {:.3f}'.format(epoch+1, loss_avg))
-		print("---------------------------------------------------")
-
+		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		global_metrics = []
 			
 		rmse = math.sqrt(mean_squared_error(global_predictions['act'], global_predictions['pred']))
@@ -319,7 +318,7 @@ if __name__ == '__main__':
 		print('Global NRMSE of group %s : %.2f' %(gid, nrmse))
 		print('Global MAE of group %s : %.2f' %(gid, mae))
 		print("---------------------------------------------------")
-		helper.write_csv(base_path + "/results/online-federated-global"+"-e"+str(epoch)+"-t"+str(test_range), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
+		helper.write_csv(base_path + "/results/online-federated-global-"+group_type+str(gid)+"-t"+str(test_range), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	
 	
 		rmse_list = []
@@ -327,7 +326,7 @@ if __name__ == '__main__':
 		for indx in tqdm(group_indices):
 			meter_id = group_ids[indx]
 			if not take_all:
-				local_model = LocalModel(group_ids[indx], split_ratio, test_len, test_range, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+				local_model = LocalModel(group_ids[indx], split_ratio, test_len, test_range, normalize=normalize_data, window=window_size, local_epochs=local_epochs, test_epochs=online_epochs, device=device)
 			else:
 				local_model = local_models[indx]
 		
@@ -347,7 +346,7 @@ if __name__ == '__main__':
 
 			rmse_list.append({'meter_id': meter_id, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})   	
  
-		helper.write_csv(base_path + "/results/online-federated-local-"+gid+"-e"+str(epoch)+"-t"+str(test_range), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
+		helper.write_csv(base_path + "/results/online-federated-local-"+group_type+str(gid)+"-t"+str(test_range), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
 	
 	print('\nTotal Run Time: {0:0.4f}'.format(time.time()-start_time))
     #---------------------------------------------------------
