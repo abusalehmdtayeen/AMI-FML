@@ -20,6 +20,7 @@ from sklearn.metrics import mean_absolute_error
 from models import LSTM
 import helper
 import utils
+from options import args_parser
 
 #=====================================
 base_path = os.getcwd()
@@ -28,11 +29,11 @@ base_path = os.getcwd()
 split_ratio = 0.80 #split ratio for train data
 test_len = 1440 #number of data points to test [**Note: if set to None, data will be divided using split ratio]
 normalize = True #normalize data
-num_hidden_nodes = 30 #number of hidden nodes in LSTM model 
+num_hidden_nodes = 50 #number of hidden nodes in LSTM model 
 window_size = 48
-epochs = 2
+epochs = 4
 random_group = False # whether groups were formed by choosing meters randomly or in sorted order
-gid = 'g1' #group id of the meters 
+gid = 'g9' #group id of the meters 
 write_predictions = False
 #====================================
 group_type = "random_" if random_group else ""
@@ -191,12 +192,22 @@ def evaluate_model(model, group_id, test_data, scaler=None):
 if __name__ == '__main__':
 	
 	start_time = time.time()
+	args = args_parser()
+	if args.group_id:
+		gid = args.group_id
+	else:
+		print("Group ID needs to be specified")	
+		sys.exit(0)	
+
+	print("Starting baseline prediction for group %s"%gid)
+
 	#groups = helper.find_filenames_ext(data_path)
 	#~~~~~~~~SET group ids manually~~~~~~~~~~~~~~~
 	group_ids = [gid] #group ids of the meter clusters
 	#-------SET group ids from data folder~~~~~~~~~~~
 	#group_ids = [ group[ : group.rindex("_")] for group in groups] 
 
+	
 	rmse_list = []
 	for gid in group_ids:
 		print("--------------------------------------")
@@ -213,6 +224,6 @@ if __name__ == '__main__':
 		rmse_list.append({'group_id': gid, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})
 		
 	helper.make_dir(base_path, "results")	
-	helper.append_csv(base_path + "/results/single-group-"+group_type, rmse_list, ["group_id", "RMSE", "NRMSE" ,"MAE"])
+	helper.write_csv(base_path + "/results/single-group-"+group_type+"-"+gid, rmse_list, ["group_id", "RMSE", "NRMSE" ,"MAE"])
 
 	print('\nTotal Execution Time: {0:0.4f}'.format(time.time()-start_time))

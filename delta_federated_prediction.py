@@ -24,7 +24,9 @@ from torch import nn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
-from local_model import LocalModel
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+from delta_local_model import LocalModel
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 from models import LSTM
 from options import args_parser
 
@@ -40,7 +42,7 @@ normalize_data = True  #perform max-min normalization on the data
 window_size = 48  #length of the input sequence to be used for predicting the next time step data point 
 take_all = True #whether federated learning will be applied to all participants
 random_group = False # whether groups were formed by choosing meters randomly or in sorted order
-gid = 'g9' #group id of the meters 
+gid = 'g5' #group id of the meters 
 write_predictions = False
 #===========================================
 
@@ -59,7 +61,7 @@ else:
 base_path = os.getcwd()
 
 #---------------------------------------------
-def average_weights(w):
+def average_weights(gW, w):
 	"""
 	Returns the average of the weights.
 	"""
@@ -69,7 +71,10 @@ def average_weights(w):
 			w_avg[key] += w[i][key]
 		w_avg[key] = torch.div(w_avg[key], len(w))
     
-	return w_avg
+	for key in gW.keys():
+		gW[key] = gW[key] + w_avg[key]
+
+	return gW
 
 #----------------------------------------------
 def global_inference(test_data, scaler, model):
@@ -230,7 +235,8 @@ if __name__ == '__main__':
 			local_losses.append(copy.deepcopy(loss))
 
         # update global weights
-		global_weights = average_weights(local_weights)
+		prev_global_weights = global_model.state_dict()
+		global_weights = average_weights(prev_global_weights, local_weights)
 
         # update global weights
 		global_model.load_state_dict(global_weights)
@@ -244,7 +250,7 @@ if __name__ == '__main__':
 	print('\nTotal Training Time: {0:0.4f}'.format(time.time()-start_time))
 	#------------------------------------------------------------------------
 	helper.make_dir(base_path, "results")
-	helper.write_csv(base_path + "/results/federated-"+group_type+gid+"-train-avg-loss", train_loss, ["epoch", "locals_loss_avg"])
+	helper.write_csv(base_path + "/results/delta-federated-"+group_type+gid+"-train-avg-loss", train_loss, ["epoch", "locals_loss_avg"])
 
 	#~~~~~~~~~~~~~~~when ALL PARTICIPANTS are chosen~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # Inference on test data of local participants after completion of training
@@ -269,7 +275,7 @@ if __name__ == '__main__':
 
 		helper.make_dir(base_path, "raw_results")
 		if write_predictions:
-			utils.write_predictions(base_path + "/raw_results/"+ "federated-local-"+group_type+str(gid)+"-"+str(meter_id), act_values, pred_values)
+			utils.write_predictions(base_path + "/raw_results/"+ "delta-federated-local-"+group_type+str(gid)+"-"+str(meter_id), act_values, pred_values)
 
 		group_losses.append(losses)
 		rmse = math.sqrt(mean_squared_error(act_values, pred_values))
@@ -288,7 +294,7 @@ if __name__ == '__main__':
  
 	print('\nTotal Run Time: {0:0.4f}'.format(time.time()-start_time))
 	
-	helper.write_csv(base_path + "/results/federated-local-"+group_type+str(gid), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
+	helper.write_csv(base_path + "/results/delta-federated-local-"+group_type+str(gid), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
 
     #---------------------------------------------------------
 	''' 
@@ -307,7 +313,7 @@ if __name__ == '__main__':
 
 	helper.make_dir(base_path, "raw_results")
 	if write_predictions:
-		utils.write_predictions(base_path + "/raw_results/"+ "federated-global-"+group_type+str(gid), actual_values, predicted_values)
+		utils.write_predictions(base_path + "/raw_results/"+ "delta-federated-global-"+group_type+str(gid), actual_values, predicted_values)
 
 	rmse = math.sqrt(mean_squared_error(actual_values, predicted_values))
 	nrmse = rmse / (global_test_max - global_test_min)
@@ -318,5 +324,5 @@ if __name__ == '__main__':
 	print('Global NRMSE of group %s : %.2f' %(gid, nrmse))
 	print('Global MAE of group %s : %.2f' %(gid, mae))
 	print("---------------------------------------------------")
-	helper.write_csv(base_path + "/results/federated-global-"+group_type+str(gid), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
+	helper.write_csv(base_path + "/results/delta-federated-global-"+group_type+str(gid), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
 	
