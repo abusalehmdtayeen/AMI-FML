@@ -24,7 +24,7 @@ from torch import nn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
-from online_local_model import LocalModel
+from random_online_local_model import LocalModel
 from options import args_parser
 from models import LSTM
 
@@ -255,7 +255,7 @@ if __name__ == '__main__':
 	print('\nTotal Training Time: {0:0.4f}'.format(time.time()-start_time))
 	#------------------------------------------------------------------------
 	helper.make_dir(base_path, "results")
-	helper.write_csv(base_path + "/results/online-federated-"+group_type+"-"+gid+"-train-avg-loss-t"+str(test_range), train_loss, ["epoch", "locals_loss_avg"])
+	helper.write_csv(base_path + "/results/random-online-federated-"+group_type+"-"+gid+"-train-avg-loss-t"+str(test_range), train_loss, ["epoch", "locals_loss_avg"])
 
 
 	#~~~~~~~~~~~~~~~~~ONLINE TRAINING~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -335,7 +335,7 @@ if __name__ == '__main__':
 		print('Global NRMSE of group %s : %.2f' %(gid, nrmse))
 		print('Global MAE of group %s : %.2f' %(gid, mae))
 		print("---------------------------------------------------")
-		helper.write_csv(base_path + "/results/online-federated-global-"+group_type+str(gid)+"-t"+str(test_range), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
+		helper.write_csv(base_path + "/results/random-online-federated-global-"+group_type+str(gid)+"-t"+str(test_range), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	
 	
 		rmse_list = []
@@ -363,7 +363,7 @@ if __name__ == '__main__':
 
 			rmse_list.append({'meter_id': meter_id, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})   	
  
-		helper.write_csv(base_path + "/results/online-federated-local-"+group_type+str(gid)+"-t"+str(test_range), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
+		helper.write_csv(base_path + "/results/random-online-federated-local-"+group_type+str(gid)+"-t"+str(test_range), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
 	
 	print('\nTotal Run Time: {0:0.4f}'.format(time.time()-start_time))
     #---------------------------------------------------------

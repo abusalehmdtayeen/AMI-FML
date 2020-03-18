@@ -18,6 +18,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 
+from options import args_parser
 from models import LSTM
 import helper
 import utils
@@ -30,11 +31,11 @@ data_path = base_path + "/data/meter_load_half_hr/"
 split_ratio = 0.80 #split ratio for train data
 test_len = 1440 #None
 normalize = True #normalize data
-num_hidden_nodes = 30 #number of hidden nodes in LSTM model 
+num_hidden_nodes = 50 #number of hidden nodes in LSTM model 
 window_size = 48
-epochs = 2
+epochs = 4
 random_group = False # whether groups were formed by choosing meters randomly or in sorted order
-gid = 'g1' #group id of the meters 
+gid = 'g9' #group id of the meters 
 write_predictions = False
 #====================================
 
@@ -198,7 +199,16 @@ def evaluate_model(model, group_id, test_data, scaler=None):
 #-------------------------------
 if __name__ == '__main__':
 	start_time = time.time()
+	args = args_parser()
+	if args.group_id:
+		gid = args.group_id
+	else:
+		print("Group ID needs to be specified")	
+		sys.exit(0)	
+
+	print("Starting individual baseline prediction for group %s"%gid)
 	
+
 	groups = helper.find_filenames_ext(data_path)
 	group_type = "random_" if random_group else "" 
 	#~~~~~~~~SET group ids manually~~~~~~~~~~~~~~~

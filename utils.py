@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import csv
 
 #----------------------------------------
 def plot_dataset(dataframe):
@@ -49,6 +50,14 @@ def plot_losses(fig_path, gid, losses, lid="single"):
 	plt.xlabel('Timesteps')
 	plt.savefig(fig_path +"/"+ str(gid)+"_test_loss_"+ lid + ".pdf", bbox_inches = "tight")
 	plt.close()
+
+#---------------------------------------
+def write_predictions(file_id, act_values, pred_values):
+	with open(file_id+'.csv', 'w') as csvfile:
+		csv_writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+		csv_writer.writerow(['true_values', 'predicted_values'])
+		for indx in range(len(act_values)):
+			csv_writer.writerow([ act_values[indx], pred_values[indx] ])
 
 #--------------------------------------
 def create_inout_sequences(input_data, tw):
