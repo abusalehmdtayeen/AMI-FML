@@ -2,13 +2,16 @@
 # -*- coding: utf-8 -*-
 # Python version: 3.6
 #Helper Source: https://stackabuse.com/time-series-prediction-using-lstm-with-pytorch-in-python/
-
+#--------------------------------------------------
+# LSTM Implementation with Batch Training support
+#----------------------------------------------------
 import os
 import time
 import sys
 import math
 import torch
 from torch import nn
+import torch.utils.data as data_utils
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,6 +20,7 @@ from tqdm import tqdm
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
+
 
 from options import args_parser
 from models import LSTM
@@ -29,14 +33,15 @@ base_path = os.getcwd()
 data_path = base_path + "/data/meter_load_half_hr/"
 #============PARAMETERS===============
 split_ratio = 0.80 #split ratio for train data
-test_len = 1440 #None
-normalize = True #normalize data
+test_len = 1440 #number of test points= 30 days (30*48) of data  [**Note: set to None to split data based on a ratio]
+normalize = True #whether to perform max-min normalization on the data
 num_hidden_nodes = 50 #number of hidden nodes in LSTM model 
-window_size = 48
-epochs = 4
+window_size = 48 #sequence length: length of the input sequence to be used for predicting the next time step data point 
+batch_size = 24 #16, 24, 48 #size of batch for training and testing, e.g. for total number of sequences 24,096 (24,144-48), having batch size 96 will produce 251 batches for training
+epochs = 5 #number of epochs each model will run
 random_group = False # whether groups were formed by choosing meters randomly or in sorted order
-gid = 'g9' #group id of the meters 
-write_predictions = False
+#gid = 'g9' #group id of the meters used as command line parameter
+write_predictions = True
 #====================================
 
 # torch.cuda.is_available() checks and returns a Boolean True if a GPU is available, else it'll return False
@@ -61,7 +66,7 @@ def get_train_test_data(group_id):
           
         Returns: 
 	"""
-	print("Getting data of group with ID: %s"%str(group_id))
+	print("Getting data of meter with ID: %s"%str(group_id))
 	#dataframe = pd.read_csv(data_path+str(group_id)+"_sum"+".csv")
 	dataframe = pd.read_csv(data_path+str(group_id)+".csv")
 	#print(dataframe.shape)
@@ -105,96 +110,122 @@ def get_train_test_data(group_id):
 
 #---------------------------------------
 def train_model(model, train_data):
-	#convert train data into tensors since PyTorch models are trained using tensors
-	train_data = torch.FloatTensor(train_data).view(-1)
-	#print(train_data)
+	x_train, y_train = utils.create_inout_sequences(train_data, window_size)
+	train = data_utils.TensorDataset(torch.from_numpy(x_train), torch.from_numpy(y_train))
+	train_loader = data_utils.DataLoader(train, batch_size=batch_size, shuffle=False)
 
-	#convert our training data into sequences and corresponding labels.
-	train_inout_seq = utils.create_inout_sequences(train_data, window_size)
-	#print(train_inout_seq[:5])
+	print("Number of train batches: %d"%len(train_loader))
+
+	loss_function = nn.MSELoss().to(device)
+	optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 	model.train()
 	print("Started training the model...")
-	for i in range(epochs):
-		for seq, labels in train_inout_seq:
-			seq, labels = seq.to(device), labels.to(device)
-			optimizer.zero_grad()
-			model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=device), torch.zeros(1, 1, model.hidden_layer_size, device=device))
-			y_pred = model(seq)
+	start_time = time.time()
 
-			single_loss = loss_function(y_pred, labels)
-			single_loss.backward()
+	for i in range(epochs):
+		batch_loss = 0.
+		for batch_idx, (x_batch, y_batch) in enumerate(train_loader):
+			#print (x_batch.shape)
+			seq, labels = x_batch.to(device), y_batch.to(device)
+			labels = labels.view(-1, 1)
+			optimizer.zero_grad()
+			model.hidden_cell = model.init_hidden(batch_size, device)
+			y_pred = model(seq)
+			
+			loss = loss_function(y_pred, labels)
+			loss.backward()
 			optimizer.step()
 
-		print(f'epoch:{i:3} loss: {single_loss.item():10.8f}')
+			batch_loss += loss.item()
+
+		avg_loss = batch_loss / (batch_idx+1)
+		if i%1 == 0:
+			print(f'Epoch: {i:3} Avg loss: {avg_loss:10.8f}')
+
+	elapsed_time = time.time() - start_time
+	print(f'Training time: {elapsed_time: 10.4f}')
 
 	return model
 	
+#-------------------------------------
+def mean_absolute_percentage_error(y_t, y_p):
+	y_t, y_p = np.array(y_t), np.array(y_p)
+	
+	try:
+		mape = np.mean(np.abs((y_t-y_p)/y_t))
+	except:
+		mape = -1.0
+
+	return mape
+
 #-----------------------------------
 #evaluate the model with test data
 def evaluate_model(model, group_id, test_data, scaler=None):
 	test_data_max = np.amax(test_data)	
 	test_data_min = np.amin(test_data)
 
-	test_data = torch.FloatTensor(test_data).view(-1)	
-	test_seq = utils.create_inout_sequences(test_data, window_size)
-	#print (test_seq)
-	#print(len(test_seq))
+	x_test, y_test = utils.create_inout_sequences(test_data, window_size)
+	test = data_utils.TensorDataset(torch.from_numpy(x_test), torch.from_numpy(y_test))
+	#print(test[:-12])
+	test_loader = data_utils.DataLoader(test, batch_size=batch_size, shuffle=False)
+	print("Number of test batches: %d"%len(test_loader))
 
 	criterion = nn.MSELoss().to(device)
 
-	test_predictions = []
-	actual_predictions = []
-	losses = []
+	predicted_values = []
+	actual_values = []
+	
 	model.eval()
 	print("Evaluating the model...")
-	for seq, labels in test_seq:
-		seq, labels = seq.to(device), labels.to(device)
-		with torch.no_grad():
-			model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=device), torch.zeros(1, 1, model.hidden_layer_size, device=device))
+	with torch.no_grad():
+		for batch_idx, (seq, targets) in enumerate(test_loader):
+			seq, targets = seq.to(device), targets.to(device)		
+			targets = targets.view(-1, 1)
+			#print(targets.shape)
+			
+			model.hidden_cell = model.init_hidden(batch_size, device)
 			outputs = model(seq)
-			loss = criterion(outputs, labels)
-			losses.append(loss.item())
-			test_predictions.append(outputs.item())
-			actual_predictions.append(labels.item())
+			#print(outputs.shape)
+			
+			loss = criterion(outputs, targets)
 
-	#print(test_predictions)
-	#print(actual_predictions)
+			for out_tensor in outputs:
+				predicted_values.append(out_tensor.item())
+			#print(predicted_values[:5])
+			for target_tensor in targets:
+				actual_values.append(target_tensor.item())
+			#print(actual_values[:5])				
+
 	if normalize and scaler is not None:
 		#Since we normalized the dataset, the predicted values are also normalized. We need to convert the normalized predicted values into actual predicted values.
-		actual_predictions = scaler.inverse_transform(np.array(actual_predictions).reshape(-1, 1))
-		test_predictions = scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1))
+		actual_values = scaler.inverse_transform(np.array(actual_values).reshape(-1, 1))
+		predicted_values = scaler.inverse_transform(np.array(predicted_values).reshape(-1, 1))
 		
-		test_predictions = test_predictions[:,0]
-		actual_predictions = actual_predictions[:,0]
+		predicted_values = predicted_values[:,0]
+		actual_values = actual_values[:,0]
 
-	#print(actual_predictions[:5])
+	#print(actual_values[:5])
 	#print("-----------------")
-	#print(test_predictions[:5])	
+	#print(predicted_values[:5])	
 	#print("-----------------")
 	meter_id = group_id 
 	helper.make_dir(base_path, "raw_results")
 	if write_predictions:
-		utils.write_predictions(base_path + "/raw_results/"+ "single-local-"+group_type+str(gid)+"-"+str(meter_id), actual_predictions, test_predictions)
+		utils.write_predictions(base_path + "/raw_results/"+ "single-local-"+group_type+str(gid)+"-"+str(meter_id), actual_values, predicted_values)
 
-	helper.make_dir(base_path, "figures")
-	#utils.plot_predictions(base_path + "/figures/", group_id, actual_predictions, test_predictions)
-
-	#errors = [(i - j)**2 for i, j in zip(actual_predictions, test_predictions)] 
-	#print(errors[: 5])
-	#print(losses[: 5])
-	#utils.plot_errors(base_path + "/figures/", group_id, errors, eid="agg-single")
-	#utils.plot_losses(base_path + "/figures/", group_id, losses, lid="agg-single")
-
-	RMSE = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
+	
+	RMSE = math.sqrt(mean_squared_error(actual_values, predicted_values))
 	NRMSE = RMSE / (test_data_max - test_data_min)
-	MAE = mean_absolute_error(actual_predictions, test_predictions)
+	MAE = mean_absolute_error(actual_values, predicted_values)
+	MAPE = mean_absolute_percentage_error(actual_values, predicted_values)
+
 	print('RMSE of meter with ID %s : %.2f' %(str(group_id), RMSE))
 	print('NRMSE of meter with ID %s : %.2f' %(str(group_id), NRMSE))
 	print('MAE of meter with ID %s : %.2f' %(str(group_id), MAE))
+	print('MAPE of meter with ID %s : %.2f' %(str(group_id), MAPE))
 
-
-	return RMSE, NRMSE, MAE
+	return RMSE, NRMSE, MAE, MAPE
 
 #-------------------------------
 if __name__ == '__main__':
@@ -204,6 +235,12 @@ if __name__ == '__main__':
 		gid = args.group_id
 	else:
 		print("Group ID needs to be specified")	
+		sys.exit(0)	
+
+	if args.batch_size:
+		batch_size = args.batch_size
+	else:
+		print("batch size needs to be specified")	
 		sys.exit(0)	
 
 	print("Starting individual baseline prediction for group %s"%gid)
@@ -221,18 +258,16 @@ if __name__ == '__main__':
 	for mid in tqdm(group_ids):
 		print("--------------------------------------")
 		train_data, test_data, scaler = get_train_test_data(mid)
-	
-		model = LSTM(hidden_layer_size=num_hidden_nodes)
+
+		model = LSTM(hidden_state_size=num_hidden_nodes, batch_first=True, batch_size=batch_size)
 		model.to(device)
-		loss_function = nn.MSELoss().to(device)
-		optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 		#print(model)
 
 		model = train_model(model, train_data)
-		rmse, nrmse, mae = evaluate_model(model, mid, test_data, scaler)
-		rmse_list.append({'meter_id': mid, 'rmse': rmse, 'nrmse': nrmse, 'mae': mae})
+		rmse, nrmse, mae, mape = evaluate_model(model, mid, test_data, scaler)
+		rmse_list.append({'meter_id': mid, 'rmse': rmse, 'nrmse': nrmse, 'mae': mae, 'mape': mape})
 		
 	end_time = time.time()
 	print('\nTotal Run Time: {0:0.4f}'.format(end_time-start_time))
 	helper.make_dir(base_path, "results")	
-	helper.write_csv(base_path + "/results/single-meter-"+group_type+str(gid), rmse_list, ["meter_id", "rmse", "nrmse","mae"])
+	helper.write_csv(base_path + "/results/single-meter-"+group_type+str(gid), rmse_list, ["meter_id", "rmse", "nrmse", "mae", "mape"])

@@ -15,12 +15,13 @@ from tqdm import tqdm
 
 import matplotlib
 import matplotlib.pyplot as plt
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 
 import helper
 import utils
 import torch
 from torch import nn
+import torch.utils.data as data_utils
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
@@ -30,14 +31,15 @@ from options import args_parser
 
 #==========PARAMETERS=======================
 global_epochs = 4 #number of epochs the global model will run
-local_epochs = 4  #number of epochs each local model will run
+local_epochs = 5  #number of epochs each local model will run
 num_hidden_nodes = 50 #number of hidden nodes in LSTM model 
 frac = 0.7 #fraction of groups/meters to choose [**Note: currently not used. left for future] 
-num_participants = 20  #number of participants to be applied to federated learning [**Note: set to None to use 'frac' of total participants]
+num_participants = 50  #number of participants to be applied to federated learning [**Note: set to None to use 'frac' of total participants]
 split_ratio = 0.8 #split ratio for train data  [**Note: split ratio will only work when test_len is set to None]
 test_len = 1440 # 30 days (30*48) of data  [**Note: set to None to split data based on a ratio]
 normalize_data = True  #perform max-min normalization on the data
 window_size = 48  #length of the input sequence to be used for predicting the next time step data point 
+batch_size = 24 #16, 24, 48 :size of batch for training and testing, e.g. for total number of sequences 24,096 (24,144-48), having batch size 96 will produce 251 batches for training
 take_all = True #whether federated learning will be applied to all participants
 random_group = False # whether groups were formed by choosing meters randomly or in sorted order
 gid = 'g9' #group id of the meters 
@@ -76,39 +78,49 @@ def global_inference(test_data, scaler, model):
 	""" 
 	Returns the inference and loss on global test data.
 	"""
-	model.to(device)
-	test_tensor = torch.FloatTensor(test_data).view(-1)	
-	test_seq = utils.create_inout_sequences(test_tensor, window_size)
 
+	x_test, y_test = utils.create_inout_sequences(test_data, window_size)
+	test = data_utils.TensorDataset(torch.from_numpy(x_test), torch.from_numpy(y_test))
+	test_loader = data_utils.DataLoader(test, batch_size=batch_size, shuffle=False)
+
+	model.to(device)
+	
 	criterion = nn.MSELoss().to(device)
 
 	model.eval()
 	#print(next(model.parameters()).is_cuda)
 	losses = []
 	total_seq = 0
-	test_predictions = []
-	actual_predictions = []
-	for seq, labels in test_seq:	
-		seq, labels = seq.to(device), labels.to(device)
-		with torch.no_grad():
-			model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=device), torch.zeros(1, 1, model.hidden_layer_size, device=device))
-			# Global Inference
+	predicted_values = []
+	actual_values = []
+
+	with torch.no_grad():
+		for batch_idx, (seq, targets) in enumerate(test_loader):
+			seq, targets = seq.to(device), targets.to(device)		
+			targets = targets.view(-1, 1)
+			#print(targets.shape)
+			
+			model.hidden_cell = model.init_hidden(device)
 			outputs = model(seq)
-			batch_loss = criterion(outputs, labels)
-			losses.append(batch_loss.item())
-				
-			test_predictions.append(outputs.item())
-			actual_predictions.append(labels.item())
-		total_seq += 1		
+			#print(outputs.shape)
+			
+			loss = criterion(outputs, targets)
+
+			for out_tensor in outputs:
+				predicted_values.append(out_tensor.item())
+			#print(predicted_values[:5])
+			for target_tensor in targets:
+				actual_values.append(target_tensor.item())
+			#print(actual_values[:5])				
 
 	if normalize_data and scaler is not None:
-		actual_predictions = scaler.inverse_transform(np.array(actual_predictions).reshape(-1, 1))
-		test_predictions = scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1))
+		actual_values = scaler.inverse_transform(np.array(actual_values).reshape(-1, 1))
+		predicted_values = scaler.inverse_transform(np.array(predicted_values).reshape(-1, 1))
 		
-		test_predictions = test_predictions[:,0]
-		actual_predictions = actual_predictions[:,0]      
+		predicted_values = predicted_values[:,0]
+		actual_values = actual_values[:,0]      
 
-	return actual_predictions, test_predictions, losses
+	return actual_values, predicted_values, losses
 
 #----------------------------------------------
 def global_train_test(g_id):
@@ -159,7 +171,13 @@ if __name__ == '__main__':
 		gid = args.group_id
 	else:
 		print("Group ID needs to be specified")	
-		sys.exit(0)	
+		sys.exit(0)
+
+	if args.batch_size:
+		batch_size = args.batch_size
+	else:
+		print("batch size needs to be specified")	
+		sys.exit(0)		
 
 	print("Starting federated learning for group %s"%gid)
 
@@ -179,7 +197,7 @@ if __name__ == '__main__':
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 	# create model object
-	global_model = LSTM(hidden_layer_size=num_hidden_nodes)
+	global_model = LSTM(hidden_state_size=num_hidden_nodes, batch_first=True, batch_size=batch_size)
     
     # Set the model to train and send it to device.
 	global_model.to(device)
@@ -197,7 +215,7 @@ if __name__ == '__main__':
 	if take_all:		
 		group_indices = np.arange(num_groups)
 		for indx in group_indices:
-			local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+			local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, batch_size=batch_size, local_epochs=local_epochs, device=device)
 			local_models.append(local_model)
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -219,7 +237,7 @@ if __name__ == '__main__':
 			print("Training meter with ID: %s"%str(group_ids[indx]))
 			#~~~~~~~~~~~~~~~when FRACTION OF ALL PARTICIPANTS are choosen randomly~~~~~~~~~~~~
 			if not take_all:
-				local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+				local_model = LocalModel(group_ids[indx], split_ratio, test_len, normalize=normalize_data, window=window_size, batch_size=batch_size, local_epochs=local_epochs, device=device)
 				#local_models.append(local_model)
 			#~~~~~~~~~~~~~~~~~when ALL PARTICIPANTS are chosen~~~~~~~~~~~~~~~~~~~~~~~~~~~
 			else:			
@@ -250,14 +268,14 @@ if __name__ == '__main__':
     # Inference on test data of local participants after completion of training
 	print(f'\nResults of participants after {global_epochs} global rounds of training:')	
 	group_losses = []
-	group_errors = []
+	
 	rmse_list = []
 	#global_model.eval()
 	
 	for indx in range(num_groups):
 		meter_id = group_ids[indx]
 		if not take_all:
-			local_model = LocalModel(meter_id, split_ratio, normalize=normalize_data, window=window_size, local_epochs=local_epochs, device=device)
+			local_model = LocalModel(meter_id, split_ratio, normalize=normalize_data, window=window_size, batch_size=batch_size, local_epochs=local_epochs, device=device)
 		else:
 			local_model = local_models[indx]
 		
@@ -267,40 +285,29 @@ if __name__ == '__main__':
 		act_values, pred_values, losses = local_model.inference(model=global_model)
 		#act_values, pred_values, losses = local_model.inference(model=copy.deepcopy(global_model))
 
-		helper.make_dir(base_path, "raw_results")
+		helper.make_dir(base_path, "raw_results/federated/")
 		if write_predictions:
-			utils.write_predictions(base_path + "/raw_results/"+ "federated-local-"+group_type+str(gid)+"-"+str(meter_id), act_values, pred_values)
+			utils.write_predictions(base_path + "/raw_results/federated/"+ "federated-local-"+group_type+str(gid)+"-"+str(meter_id), act_values, pred_values)
 
 		group_losses.append(losses)
 		rmse = math.sqrt(mean_squared_error(act_values, pred_values))
 		nrmse = rmse / (test_data_max - test_data_min)
 		mae = mean_absolute_error(act_values, pred_values)	
+		mape = utils.mean_absolute_percentage_error(act_values, pred_values)
 	
-		errors = [(i - j)**2 for i, j in zip(act_values, pred_values)] #not used
-		group_errors.append(errors) #not used
-
 		print("RMSE of meter %s: %.2f"%(str(group_ids[indx]), rmse))
 		print('NRMSE of meter %s : %.2f' %(str(group_ids[indx]), nrmse))
 		print('MAE of meter %s : %.2f' %(str(group_ids[indx]), mae))
 		print("---------------------------------------------------")
 
-		rmse_list.append({'meter_id': str(group_ids[indx]), 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})   	
+		rmse_list.append({'meter_id': str(group_ids[indx]), 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae, 'MAPE': mape})   	
  
 	print('\nTotal Run Time: {0:0.4f}'.format(time.time()-start_time))
 	
-	helper.write_csv(base_path + "/results/federated-local-"+group_type+str(gid), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE"])
+	helper.write_csv(base_path + "/results/federated-local-"+group_type+str(gid), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE", "MAPE"])
 
     #---------------------------------------------------------
-	''' 
-	helper.make_dir(base_path, "figures")	
-	print("Plotting federated test loss and error curves")
-	for indx in group_indices:
-		gid = group_ids[indx]
-		g_losses = group_losses[indx]
-		g_errors = group_errors[indx]
-		utils.plot_losses(base_path + "/figures/", gid, g_losses, lid="federated")
-		utils.plot_errors(base_path + "/figures/", gid, g_errors, eid="federated")
-	'''
+	
 	#~~~~~~~~~~~~~~~~~~~~Performance of Aggregator using global model trained in federated settings~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 	global_metrics = []
 	actual_values, predicted_values, test_losses = global_inference(global_test, global_scaler, global_model)
@@ -311,12 +318,14 @@ if __name__ == '__main__':
 
 	rmse = math.sqrt(mean_squared_error(actual_values, predicted_values))
 	nrmse = rmse / (global_test_max - global_test_min)
-	mae = mean_absolute_error(actual_values, predicted_values)		
-	global_metrics.append({'group_id': gid, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae})
+	mae = mean_absolute_error(actual_values, predicted_values)
+	mape = utils.mean_absolute_percentage_error(actual_values, predicted_values)
+	
+	global_metrics.append({'group_id': gid, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae, 'MAPE': mape})
 
 	print("Global RMSE of group %s: %.2f"%(gid, rmse))
 	print('Global NRMSE of group %s : %.2f' %(gid, nrmse))
 	print('Global MAE of group %s : %.2f' %(gid, mae))
 	print("---------------------------------------------------")
-	helper.write_csv(base_path + "/results/federated-global-"+group_type+str(gid), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE"])
+	helper.write_csv(base_path + "/results/federated-global-"+group_type+str(gid), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE", "MAPE"])
 	

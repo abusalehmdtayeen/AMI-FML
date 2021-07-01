@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import csv
+import numpy as np
 
 #----------------------------------------
 def plot_dataset(dataframe):
@@ -61,6 +62,31 @@ def write_predictions(file_id, act_values, pred_values):
 
 #--------------------------------------
 def create_inout_sequences(input_data, tw):
+	x = []
+	y = []
+	L = len(input_data)
+	for i in range(L-tw):
+		train_seq = input_data[i:i+tw]
+		train_label = input_data[i+tw:i+tw+1]
+		x.append(train_seq) 
+		y.append(train_label)
+
+	return np.array(x), np.array(y)
+
+#---------------------------------------
+def mean_absolute_percentage_error(y_t, y_p):
+	y_t, y_p = np.array(y_t), np.array(y_p)
+	
+	try:
+		mape = np.mean(np.abs((y_t-y_p)/y_t))
+	except:
+		mape = -1.0
+
+	return mape
+
+#---------------------------------------
+
+def create_sequence_tuples(input_data, tw):
 	"""
 	Create sequences and corresponding labels for training
 	Parameters
@@ -79,3 +105,4 @@ def create_inout_sequences(input_data, tw):
 		inout_seq.append((train_seq ,train_label))
 	
 	return inout_seq
+

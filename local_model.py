@@ -12,18 +12,20 @@ from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import MinMaxScaler
 from torch import nn
+import torch.utils.data as data_utils
 
 #=============================================
 class LocalModel(object):
 
-	def __init__(self, gid, split_ratio=0.8, test_len=None, normalize=True, window = 24,local_epochs=10, device="cpu"):
+	def __init__(self, gid, split_ratio=0.8, test_len=None, normalize=True, window = 24, batch_size=24, local_epochs=10, device=torch.device("cpu")):
 		#self.data_path = os.getcwd() + "/data/group_load/"
 		self.data_path = os.getcwd() + "/data/meter_load_half_hr/"
 		self.normalize = normalize
 		self.scaler = None
 		self.test_len = test_len
+		self.batch_size = batch_size
 		self.train, self.test = self.train_test_data(gid, split_ratio)
-		self.device = torch.device(device)		
+		self.device = device #torch.device(device)		
 		self.window = window
 		self.epochs = local_epochs
 		# Default criterion set to MSE loss function
@@ -69,8 +71,9 @@ class LocalModel(object):
 		"""
 		Performs local update on the train data.
 		"""
-		train_tensor = torch.FloatTensor(self.train).view(-1)
-		train_seq = utils.create_inout_sequences(train_tensor, self.window)
+		x_train, y_train = utils.create_inout_sequences(self.train, self.window)
+		train = data_utils.TensorDataset(torch.from_numpy(x_train), torch.from_numpy(y_train))
+		train_loader = data_utils.DataLoader(train, batch_size=self.batch_size, shuffle=False)
 
 		# Set optimizer for the local updates
 		optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
@@ -79,22 +82,25 @@ class LocalModel(object):
 		epoch_loss = []
 		
 		for i in range(self.epochs):
-			batch_loss = []
-			for seq, labels in train_seq:
-				seq, labels = seq.to(self.device), labels.to(self.device)
+			batch_loss = 0.
+			for batch_idx, (x_batch, y_batch) in enumerate(train_loader):
+				#print (x_batch.shape)
+				seq, labels = x_batch.to(self.device), y_batch.to(self.device)
+				labels = labels.view(-1, 1)
 				optimizer.zero_grad()
-				model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=self.device), torch.zeros(1, 1, model.hidden_layer_size, device=self.device))
+				model.hidden_cell = model.init_hidden(self.batch_size, self.device)
 				y_pred = model(seq)
-
+			
 				loss = self.criterion(y_pred, labels)
 				loss.backward()
 				optimizer.step()
-				batch_loss.append(loss.item())
 
-			ep_loss = sum(batch_loss)/len(batch_loss)
-			epoch_loss.append(ep_loss)
+				batch_loss += loss.item()
 
-			print(f'Global Round: {global_round:2}  Local epoch: {i+1:3}  Loss: {ep_loss:10.6f}')
+			avg_loss = batch_loss / (batch_idx+1)
+			if i%1 == 0:
+				print(f'Global Round: {global_round:2}  Local epoch: {i+1:3}  Avg Loss: {avg_loss:10.8f}')
+			epoch_loss.append(avg_loss)
              
 		return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -103,38 +109,47 @@ class LocalModel(object):
 		""" 
 		Returns the inference loss on test data.
 		"""
-		model.to(self.device)
-		test_tensor = torch.FloatTensor(self.test).view(-1)	
-		test_seq = utils.create_inout_sequences(test_tensor, self.window)
+		x_test, y_test = utils.create_inout_sequences(self.test, self.window)
+		test = data_utils.TensorDataset(torch.from_numpy(x_test), torch.from_numpy(y_test))
+		test_loader = data_utils.DataLoader(test, batch_size=self.batch_size, shuffle=False)
 
-		model.eval()
+		model.to(self.device)
+				
 		#print(next(model.parameters()).is_cuda)
 		losses = []
-		total_seq = 0
-		test_predictions = []
-		actual_predictions = []
-		for seq, labels in test_seq:	
-			seq, labels = seq.to(self.device), labels.to(self.device)
-			with torch.no_grad():
-				model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size, device=self.device), torch.zeros(1, 1, model.hidden_layer_size, device=self.device))
-				# Inference
+		predicted_values = []
+		actual_values = []
+
+		model.eval()
+		with torch.no_grad():
+			for batch_idx, (seq, targets) in enumerate(test_loader):
+				seq, targets = seq.to(self.device), targets.to(self.device)		
+				targets = targets.view(-1, 1)
+				#print(targets.shape)
+			
+				model.hidden_cell = model.init_hidden(self.batch_size, self.device)
 				outputs = model(seq)
-				batch_loss = self.criterion(outputs, labels)
-				losses.append(batch_loss.item())
-				
-				test_predictions.append(outputs.item())
-				actual_predictions.append(labels.item())
-			total_seq += 1		
+				#print(outputs.shape)
+			
+				loss = self.criterion(outputs, targets)
+				losses.append(loss)
+
+				for out_tensor in outputs:
+					predicted_values.append(out_tensor.item())
+				#print(predicted_values[:5])
+				for target_tensor in targets:
+					actual_values.append(target_tensor.item())
+				#print(actual_values[:5])				
+
 
 		if self.normalize and self.scaler is not None:
-			actual_predictions = self.scaler.inverse_transform(np.array(actual_predictions).reshape(-1, 1))
-			test_predictions = self.scaler.inverse_transform(np.array(test_predictions).reshape(-1, 1))
+			actual_values = self.scaler.inverse_transform(np.array(actual_values).reshape(-1, 1))
+			predicted_values = self.scaler.inverse_transform(np.array(predicted_values).reshape(-1, 1))
 		
-			test_predictions = test_predictions[:,0]
-			actual_predictions = actual_predictions[:,0]      
+			predicted_values = predicted_values[:,0]
+			actual_values = actual_values[:,0]      
 
-		#rmse = math.sqrt(mean_squared_error(actual_predictions, test_predictions))
 		
-		return actual_predictions, test_predictions, losses
+		return actual_values, predicted_values, losses
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

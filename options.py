@@ -25,6 +25,9 @@ def args_parser():
                         help='SGD momentum (default: 0.5)')
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     parser.add_argument('--test_range', type=int, default=1, help='number of test samples after which local update will be sent')
+    parser.add_argument('--batch_size', type=int, default=1, help='size of batch for training and testing')
+    parser.add_argument('--per_zeros', type=float, default=0.1, help='percentage of zeros in random mask')
+    parser.add_argument('--b', type=int, default=1, help='b-bit quantization')
 	#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # model arguments

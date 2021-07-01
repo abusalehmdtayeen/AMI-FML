@@ -213,7 +213,7 @@ if __name__ == "__main__":
 	
 	#~~~~~~~~~~~PARAMETERS~~~~~~~~~~~~~~~~
 	suffix = "_half_hr"
-	num_groups = 10 #2
+	num_groups = 40 #2
 	size_group = 50 #3
 	num_meters_limit = 3600
 	randomize = False #whether meters will be chosen randomly to form group; otherwise groups are formed in sorted order

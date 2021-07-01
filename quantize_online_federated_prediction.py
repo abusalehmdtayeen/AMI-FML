@@ -27,7 +27,7 @@ import torch.utils.data as data_utils
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
-from online_local_model import LocalModel
+from quantize_online_local_model import LocalModel
 from options import args_parser
 from models import LSTM
 
@@ -196,7 +196,7 @@ if __name__ == '__main__':
 		print("batch size needs to be specified")	
 		sys.exit(0)	
 
-	print("Starting online federated learning for group %s with test range %d"%(gid, test_range))
+	print("Starting quantized online federated learning for group %s with test range %d"%(gid, test_range))
 
 	global_train, global_test, global_scaler = global_train_test(gid)
 	global_test_max = np.amax(global_test)	
@@ -278,7 +278,7 @@ if __name__ == '__main__':
 	print('\nTotal Training Time: {0:0.4f}'.format(time.time()-start_time))
 	#------------------------------------------------------------------------
 	helper.make_dir(base_path, "results")
-	helper.write_csv(base_path + "/results/online-federated-"+group_type+"-"+gid+"-train-avg-loss-t"+str(test_range), train_loss, ["epoch", "locals_loss_avg"])
+	helper.write_csv(base_path + "/results/quantize-online-federated-"+group_type+"-"+gid+"-train-avg-loss-t"+str(test_range), train_loss, ["epoch", "locals_loss_avg"])
 
 
 	#~~~~~~~~~~~~~~~~~ONLINE TRAINING~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -360,7 +360,7 @@ if __name__ == '__main__':
 		print('Global NRMSE of group %s : %.2f' %(gid, nrmse))
 		print('Global MAE of group %s : %.2f' %(gid, mae))
 		print("---------------------------------------------------")
-		helper.write_csv(base_path + "/results/online-federated-global-"+group_type+str(gid)+"-t"+str(test_range), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE", "MAPE"])
+		helper.write_csv(base_path + "/results/quantize-online-federated-global-"+group_type+str(gid)+"-t"+str(test_range), global_metrics, ["group_id", "RMSE", "NRMSE", "MAE", "MAPE"])
 		#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	
 	
 		rmse_list = []
@@ -390,7 +390,7 @@ if __name__ == '__main__':
 
 			rmse_list.append({'meter_id': meter_id, 'RMSE': rmse, 'NRMSE': nrmse, 'MAE': mae, 'MAPE': mape})   	
  
-		helper.write_csv(base_path + "/results/online-federated-local-"+group_type+str(gid)+"-t"+str(test_range), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE", "MAPE"])
+		helper.write_csv(base_path + "/results/quantize-online-federated-local-"+group_type+str(gid)+"-t"+str(test_range), rmse_list, ["meter_id", "RMSE", "NRMSE", "MAE", "MAPE"])
 	
 	print('\nTotal Run Time: {0:0.4f}'.format(time.time()-start_time))
     #---------------------------------------------------------

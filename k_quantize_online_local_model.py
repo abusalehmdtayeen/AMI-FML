@@ -3,7 +3,6 @@
 # Python version: 3.6
 
 import os
-import copy
 import math
 import torch
 import numpy as np
@@ -18,13 +17,13 @@ import torch.utils.data as data_utils
 #=============================================
 class LocalModel(object):
 
-	def __init__(self, gid, split_ratio=0.8, test_len=None, test_range=1, normalize=True, window = 24, batch_size=24, local_epochs=10, test_epochs=1, per_zeros=0.1, device=torch.device("cpu")):
+	def __init__(self, gid, split_ratio=0.8, test_len=None, test_range=1, normalize=True, window = 24, batch_size=24, local_epochs=10, test_epochs=1, k=4, device=torch.device("cpu")):
 		#self.data_path = os.getcwd() + "/data/group_load/"
 		self.data_path = os.getcwd() + "/data/meter_load_half_hr/"
 		self.normalize = normalize
 		self.scaler = None
+		self.k = k
 		self.test_len = test_len
-		self.per_zeros = per_zeros #percentage of zeros in random mask
 		self.batch_size = batch_size
 		self.test_range = test_range # the number of test points to predict before updating the model
 		self.test_epochs = test_epochs
@@ -84,8 +83,7 @@ class LocalModel(object):
 		# Set mode to train model
 		model.train()
 		epoch_loss = []
-		pre_w = model.state_dict()
-
+		
 		for i in range(self.epochs):
 			batch_loss = 0.
 			for batch_idx, (x_batch, y_batch) in enumerate(train_loader):
@@ -108,9 +106,9 @@ class LocalModel(object):
 			epoch_loss.append(avg_loss)
 
 		new_w = model.state_dict()
-		rand_w = random_mask_weights(new_w, self.device, per_zeros=self.per_zeros)
+		q_w = quantize_weights(new_w, self.k, self.device)
              
-		return rand_w, sum(epoch_loss) / len(epoch_loss)
+		return q_w, sum(epoch_loss) / len(epoch_loss)
 
 	#----------------------------------------
 	def inference(self, model):
@@ -174,7 +172,6 @@ class LocalModel(object):
 		model.train()
 		
 		epoch_loss = []
-		pre_w = model.state_dict()
 
 		for i in range(self.test_epochs):
 			epoch_loss = []
@@ -207,8 +204,7 @@ class LocalModel(object):
 
 				if batch_idx > (test_index+self.test_range):
 					break
-				
-			
+						
 			avg_loss = batch_loss / (batch_idx+1)
 		
 			epoch_loss.append(avg_loss)
@@ -220,43 +216,66 @@ class LocalModel(object):
 			predicted_values = self.scaler.inverse_transform(np.array(predicted_values).reshape(-1, 1))
 		
 			predicted_values = predicted_values[:,0]
-			actual_values = actual_values[:,0]      
+			actual_values = actual_values[:,0]
 
 		new_w = model.state_dict()
-		rand_w = random_mask_weights(new_w, self.device, self.per_zeros) 
+		q_w = quantize_weights(new_w, self.k, self.device)       
              
-		return rand_w, sum(epoch_loss) / len(epoch_loss), actual_values, predicted_values
+		return q_w, sum(epoch_loss) / len(epoch_loss), actual_values, predicted_values
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-def random_mask_weights(w, device, per_zeros=0.5):
-	rand_w = copy.deepcopy(w)
-
-	#https://stackoverflow.com/questions/19597473/binary-random-array-with-a-specific-proportion-of-ones
+def quantize_weights(w, k, device):
 	for key, value in w.items():
+		#if key != "linear.weight":
+		#	continue
 		#print(key, " shape: ", value.shape)
 		#print(key, " : ",value)
 		num_dim = len(list(value.shape))
+		np_val_arr = value.cpu().detach().numpy()  #[https://stackoverflow.com/questions/49768306/pytorch-tensor-to-numpy-array]
+		#print (np_val_arr)
+		max_val = np.amax(np_val_arr)
+		min_val = np.amin(np_val_arr)
+		#print(max_val, min_val)
 		if num_dim < 2:
-			total_elements = value.shape[0]
+			val_arr = list(np_val_arr)
 		else:	
-			total_elements = value.shape[0] * value.shape[1]
-		#print(total_elements)
-		num_zeros = int(total_elements * per_zeros)
-		num_ones = total_elements - num_zeros
-		#print("zeros:", num_zeros, " ones:", num_ones)
-		mask_arr = np.array([0] * num_zeros + [1] * num_ones)
-		np.random.shuffle(mask_arr)
+			val_arr = list(np_val_arr.flatten())
+		#print(val_arr)
+		#do the modification only for arrays with at least 2 dimension
+		if len(val_arr) != 1:
+			#[source paper: Distributed Mean Estimation with Limited Communication]
+			s = max_val - min_val 
+
+			B = []
+			for r in range(0, k+1):
+				B.append( min_val + (r*s/(k-1)) )
+
+			for j, x in enumerate(val_arr):
+				for r in range(0, k):
+					if x >= B[r] and x < B[r+1]:
+						#print(j, r)
+						B_r1 = (x - B[r])/(B[r+1] - B[r])
+						B_r = (B[r+1] - x)/(B[r+1] - B[r])
+						break
+				#print (B_r1, B_r)
+				if B_r1 > B_r:
+					val_arr[j] = B[r+1]
+				else:	 
+					val_arr[j] = B[r]
+
+		new_np_val_arr = np.array(val_arr)
+		#print(new_np_val_arr)
 		if num_dim < 2:
-			random_mask_arr = mask_arr.reshape(value.shape[0])
+			new_val_arr = new_np_val_arr.reshape(value.shape[0])
 		else:
-			random_mask_arr = mask_arr.reshape((value.shape[0], value.shape[1]))
-		random_mask_tensor = torch.from_numpy(random_mask_arr).float().to(device)
-		#random_mask_tensor = torch.from_numpy(random_mask_arr).float().to(torch.device(device))
-		#print(random_mask_tensor)
-		new_weight_value = value.mul(random_mask_tensor)
+			new_val_arr = new_np_val_arr.reshape((value.shape[0], value.shape[1]))
+		#print(new_val_arr.shape)
+		#print(new_val_arr)
+		new_val_tensor = torch.from_numpy(new_val_arr).float().to(device)
+		#print(new_val_tensor)
 		
-		rand_w[key] = new_weight_value
+		w[key] = new_val_tensor
 		#print(key, " new value: ", w[key])
 
-	return rand_w
+	return w
