@@ -9,10 +9,10 @@ M. Biswal, ASM Tayeen, and S. Misra,**“AMI-FML: A Privacy-Preserving Federated
 
 ### Dataset
 
-The dataset for the experiments comes from the Commission for Energy Regulation (CER) in Ireland. Please download the dataset from the original source.
+The dataset for the experiments comes from the Commission for Energy Regulation (CER) in Ireland. Please download the dataset (six zip files) from the original source. Put the zip files under the folder structure: **CER_Electricity/CER_Electricity_Revised_March_2012**. Unzip the files into the folder structure **data/load**. Run the *data_preprocess.py* file to process the raw data and create load data for each meter in a separate csv file. 
 
 ### Instructions
-1. First make sure each meter data are available in individual csv files inside the **data** folder. Unzip the **meter_load_half_hr.zip** file inside the **data** folder.
+1. First make sure each meter data are available in individual csv files inside the **data/meter_load_half_hr** folder. 
 
 2. Run *data_clustering.py* file first to generate the group sequence data. Make sure to set the parameters: 
 - number of groups/aggregators.
